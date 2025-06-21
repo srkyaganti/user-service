@@ -229,9 +229,12 @@ export class AuthService {
       })
     }
     
-    // Validate organization requirement
-    if (tenant.config.auth?.requireOrganization && !organizationId) {
-      throw new ValidationError('Organization membership required')
+    // Get tenant type
+    const tenantInfo = await dbManager.getTenant({ id: tenantId })
+    
+    // Validate organization requirement for B2B tenants
+    if (tenantInfo?.type === 'B2B' && !organizationId && !data.invitationToken) {
+      throw new ValidationError('Organization membership required for B2B tenants')
     }
     
     // Validate password against tenant policy

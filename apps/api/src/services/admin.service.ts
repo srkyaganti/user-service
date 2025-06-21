@@ -9,11 +9,12 @@ import {
   decrypt,
 } from '@user-service/shared'
 import { logger } from '../lib/logger'
-import type { TenantStatus } from '@user-service/database'
+import type { TenantStatus, TenantType } from '@user-service/database'
 
 export interface CreateTenantDto {
   name: string
   slug?: string
+  type?: TenantType  // B2B, B2C, or HYBRID
   config?: {
     auth?: {
       allowedMethods?: string[]
@@ -67,7 +68,8 @@ export class AdminService {
     const tenant = await dbManager.createTenant({
       name: data.name,
       slug,
-      config: data.config || this.getDefaultConfig(),
+      type: data.type || 'B2B',  // Default to B2B
+      config: data.config || this.getDefaultConfig(data.type || 'B2B'),
       dbHost: dbConfig.host,
       dbName: dbConfig.database,
       dbUser: dbConfig.user,
@@ -83,6 +85,7 @@ export class AdminService {
       id: tenant.id,
       name: tenant.name,
       slug: tenant.slug,
+      type: tenant.type,
       status: tenant.status,
       config: tenant.config,
       createdAt: tenant.createdAt,
@@ -291,25 +294,68 @@ export class AdminService {
     }
   }
   
-  private getDefaultConfig() {
-    return {
-      auth: {
-        allowedMethods: ['email', 'magic-link'],
-        requireInvitation: false,
-        requireEmailVerification: true,
-      },
-      features: {
-        organizations: true,
-        teams: true,
-        mfa: true,
-        deviceTracking: true,
-        auditLogs: true,
-      },
-      limits: {
-        maxUsers: 1000,
-        maxOrganizations: 100,
-        maxTeamsPerOrg: 50,
-      },
+  private getDefaultConfig(type: TenantType = 'B2B') {
+    if (type === 'B2B') {
+      return {
+        auth: {
+          allowedMethods: ['email', 'google', 'microsoft'],
+          requireInvitation: true,
+          requireEmailVerification: true,
+        },
+        features: {
+          organizations: true,
+          teams: true,
+          mfa: true,
+          deviceTracking: true,
+          auditLogs: true,
+        },
+        limits: {
+          maxUsers: 1000,
+          maxOrganizations: 100,
+          maxTeamsPerOrg: 50,
+        },
+      }
+    } else if (type === 'B2C') {
+      return {
+        auth: {
+          allowedMethods: ['email', 'magic-link', 'google', 'github'],
+          requireInvitation: false,
+          requireEmailVerification: false,
+        },
+        features: {
+          organizations: false,
+          teams: false,
+          mfa: true,
+          deviceTracking: true,
+          auditLogs: false,
+        },
+        limits: {
+          maxUsers: 100000,
+          maxOrganizations: 0,
+          maxTeamsPerOrg: 0,
+        },
+      }
+    } else {
+      // HYBRID
+      return {
+        auth: {
+          allowedMethods: ['email', 'magic-link', 'google', 'github', 'microsoft'],
+          requireInvitation: false,
+          requireEmailVerification: true,
+        },
+        features: {
+          organizations: true,
+          teams: true,
+          mfa: true,
+          deviceTracking: true,
+          auditLogs: true,
+        },
+        limits: {
+          maxUsers: 10000,
+          maxOrganizations: 100,
+          maxTeamsPerOrg: 50,
+        },
+      }
     }
   }
   

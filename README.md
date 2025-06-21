@@ -25,11 +25,13 @@ A comprehensive, production-ready multi-tenant authentication and user managemen
 - **Invitation System**: Email-based invitations with expiration
 
 ### Tenant Configuration (NEW)
+- **Business Model Types**: B2B, B2C, or HYBRID tenant configurations
 - **Login Method Control**: Enable/disable specific authentication methods per tenant
 - **MFA Enforcement**: Require MFA for all users or admins only
 - **Password Policies**: Customizable password requirements per tenant
 - **Account Activation**: Require email verification before account access
 - **Session Configuration**: Customizable session timeout and token expiry
+- **Type-Specific Defaults**: Automatic configuration based on business model
 
 ### Security & Compliance
 - **Audit Logging**: Track all user actions and system events

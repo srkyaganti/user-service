@@ -21,6 +21,7 @@ const createTenantRoute = createRoute({
           schema: z.object({
             name: z.string().min(2).max(100),
             slug: z.string().min(2).max(50).optional(),
+            type: z.enum(['B2B', 'B2C', 'HYBRID']).optional().describe('Tenant business model type'),
             config: z.object({
               auth: z.object({
                 allowedMethods: z.array(z.string()).optional(),
@@ -56,6 +57,7 @@ const createTenantRoute = createRoute({
               id: z.string(),
               name: z.string(),
               slug: z.string(),
+              type: z.enum(['B2B', 'B2C', 'HYBRID']),
               status: z.enum(['ACTIVE', 'SUSPENDED', 'TRIAL', 'ARCHIVED']),
               config: z.any(),
               createdAt: z.string(),

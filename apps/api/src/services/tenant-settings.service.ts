@@ -1,12 +1,90 @@
 import { getDbClient } from '../lib/database'
-import type { TenantSettings, Prisma } from '@repo/database'
+import type { TenantSettings, Prisma, TenantType } from '@repo/database'
 import { CacheService } from './cache.service'
+import { prisma } from '../lib/prisma'
 
 export class TenantSettingsService {
   private cacheService: CacheService
 
   constructor() {
     this.cacheService = new CacheService()
+  }
+
+  /**
+   * Get default settings based on tenant type
+   */
+  private getDefaultSettingsByType(type: TenantType): Partial<TenantSettings> {
+    switch (type) {
+      case 'B2B':
+        return {
+          // B2B defaults - more restrictive
+          emailPasswordEnabled: true,
+          magicLinkEnabled: false,
+          googleAuthEnabled: true,
+          githubAuthEnabled: false,
+          microsoftAuthEnabled: true,
+          mfaRequired: false,
+          mfaRequiredForAdmins: true,
+          totpEnabled: true,
+          webauthnEnabled: true,
+          requireActivation: true,
+          requireMfaForActivation: false,
+          passwordMinLength: 10,
+          passwordRequireSpecial: true,
+          passwordRequireNumber: true,
+          passwordRequireUpper: true,
+          sessionTimeout: 28800, // 8 hours
+          refreshTokenExpiry: 604800, // 7 days
+        }
+      
+      case 'B2C':
+        return {
+          // B2C defaults - more user-friendly
+          emailPasswordEnabled: true,
+          magicLinkEnabled: true,
+          googleAuthEnabled: true,
+          githubAuthEnabled: true,
+          microsoftAuthEnabled: false,
+          mfaRequired: false,
+          mfaRequiredForAdmins: false,
+          totpEnabled: true,
+          webauthnEnabled: true,
+          requireActivation: false,
+          requireMfaForActivation: false,
+          passwordMinLength: 8,
+          passwordRequireSpecial: false,
+          passwordRequireNumber: true,
+          passwordRequireUpper: false,
+          sessionTimeout: 86400, // 24 hours
+          refreshTokenExpiry: 2592000, // 30 days
+        }
+      
+      case 'HYBRID':
+        return {
+          // Hybrid defaults - balanced approach
+          emailPasswordEnabled: true,
+          magicLinkEnabled: true,
+          googleAuthEnabled: true,
+          githubAuthEnabled: true,
+          microsoftAuthEnabled: true,
+          mfaRequired: false,
+          mfaRequiredForAdmins: true,
+          totpEnabled: true,
+          webauthnEnabled: true,
+          requireActivation: false,
+          requireMfaForActivation: false,
+          passwordMinLength: 8,
+          passwordRequireSpecial: true,
+          passwordRequireNumber: true,
+          passwordRequireUpper: true,
+          sessionTimeout: 43200, // 12 hours
+          refreshTokenExpiry: 1209600, // 14 days
+        }
+      
+      default:
+        // Default to B2B settings
+        return this.getDefaultSettingsByType('B2B')
+    }
   }
 
   /**
@@ -29,8 +107,19 @@ export class TenantSettingsService {
     })
 
     if (!settings) {
+      // Get tenant type from master database
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { type: true }
+      })
+      
+      const defaultSettings = this.getDefaultSettingsByType(tenant?.type || 'B2B')
+      
       settings = await db.tenantSettings.create({
-        data: { id: 'default' }
+        data: { 
+          id: 'default',
+          ...defaultSettings
+        }
       })
     }
 
@@ -141,55 +230,107 @@ export class TenantSettingsService {
   }
 
   /**
-   * Initialize default system roles for B2B use cases
+   * Initialize default system roles based on tenant type
    */
   async initializeSystemRoles(tenantId: string): Promise<void> {
     const db = await getDbClient(tenantId)
-
-    const systemRoles = [
-      {
-        name: 'super_admin',
-        displayName: 'Super Administrator',
-        description: 'Full system access including tenant management',
-        permissions: ['*'],
-        isSystem: true
-      },
-      {
-        name: 'admin',
-        displayName: 'Administrator',
-        description: 'Administrative access to most features',
-        permissions: [
-          'users.view', 'users.create', 'users.update', 'users.delete',
-          'organizations.view', 'organizations.create', 'organizations.update',
-          'teams.view', 'teams.create', 'teams.update', 'teams.delete',
-          'settings.view', 'settings.update',
-          'audit.view'
-        ],
-        isSystem: true
-      },
-      {
-        name: 'manager',
-        displayName: 'Manager',
-        description: 'Can manage users and teams within their organization',
-        permissions: [
-          'users.view', 'users.create', 'users.update',
-          'teams.view', 'teams.create', 'teams.update',
-          'organizations.view'
-        ],
-        isSystem: true
-      },
-      {
-        name: 'member',
-        displayName: 'Member',
-        description: 'Basic user with read access',
-        permissions: [
-          'users.view.self',
-          'organizations.view',
-          'teams.view'
-        ],
-        isSystem: true
-      }
-    ]
+    
+    // Get tenant type
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { type: true }
+    })
+    
+    let systemRoles: any[] = []
+    
+    if (tenant?.type === 'B2B' || tenant?.type === 'HYBRID') {
+      // B2B roles
+      systemRoles = [
+        {
+          name: 'super_admin',
+          displayName: 'Super Administrator',
+          description: 'Full system access including tenant management',
+          permissions: ['*'],
+          isSystem: true
+        },
+        {
+          name: 'admin',
+          displayName: 'Administrator',
+          description: 'Administrative access to most features',
+          permissions: [
+            'users.view', 'users.create', 'users.update', 'users.delete',
+            'organizations.view', 'organizations.create', 'organizations.update',
+            'teams.view', 'teams.create', 'teams.update', 'teams.delete',
+            'settings.view', 'settings.update',
+            'audit.view'
+          ],
+          isSystem: true
+        },
+        {
+          name: 'manager',
+          displayName: 'Manager',
+          description: 'Can manage users and teams within their organization',
+          permissions: [
+            'users.view', 'users.create', 'users.update',
+            'teams.view', 'teams.create', 'teams.update',
+            'organizations.view'
+          ],
+          isSystem: true
+        },
+        {
+          name: 'member',
+          displayName: 'Member',
+          description: 'Basic user with read access',
+          permissions: [
+            'users.view.self',
+            'organizations.view',
+            'teams.view'
+          ],
+          isSystem: true
+        }
+      ]
+    }
+    
+    if (tenant?.type === 'B2C' || tenant?.type === 'HYBRID') {
+      // B2C roles
+      const b2cRoles = [
+        {
+          name: 'premium_user',
+          displayName: 'Premium User',
+          description: 'Premium tier user with additional features',
+          permissions: [
+            'premium.features',
+            'export.data',
+            'api.access',
+            'priority.support'
+          ],
+          isSystem: true
+        },
+        {
+          name: 'standard_user',
+          displayName: 'Standard User',
+          description: 'Standard tier user',
+          permissions: [
+            'basic.features',
+            'profile.manage',
+            'settings.update'
+          ],
+          isSystem: true
+        },
+        {
+          name: 'free_user',
+          displayName: 'Free User',
+          description: 'Free tier user with limited access',
+          permissions: [
+            'basic.features.limited',
+            'profile.view'
+          ],
+          isSystem: true
+        }
+      ]
+      
+      systemRoles = [...systemRoles, ...b2cRoles]
+    }
 
     // Create roles if they don't exist
     for (const role of systemRoles) {
@@ -202,13 +343,29 @@ export class TenantSettingsService {
   }
 
   /**
-   * Assign default role to new user based on tenant settings
+   * Assign default role to new user based on tenant type and settings
    */
   async assignDefaultRole(tenantId: string, userId: string, isFirstUser: boolean = false): Promise<void> {
     const db = await getDbClient(tenantId)
-
-    // First user gets admin role, others get member role
-    const roleName = isFirstUser ? 'admin' : 'member'
+    
+    // Get tenant type
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { type: true }
+    })
+    
+    let roleName: string
+    
+    if (tenant?.type === 'B2B') {
+      // B2B: First user gets admin, others get member
+      roleName = isFirstUser ? 'admin' : 'member'
+    } else if (tenant?.type === 'B2C') {
+      // B2C: First user gets premium (as founder), others get free tier
+      roleName = isFirstUser ? 'premium_user' : 'free_user'
+    } else {
+      // HYBRID: First user gets admin, others get standard_user
+      roleName = isFirstUser ? 'admin' : 'standard_user'
+    }
     
     const role = await db.role.findUnique({
       where: { name: roleName }

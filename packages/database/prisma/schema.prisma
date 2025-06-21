@@ -15,6 +15,7 @@ model Tenant {
   name          String
   config        Json      @default("{}")
   status        TenantStatus @default(ACTIVE)
+  type          TenantType @default(B2B) // Business model type
   
   // Database configuration
   dbHost        String?
@@ -29,6 +30,12 @@ model Tenant {
   updatedAt     DateTime  @updatedAt
   
   @@map("tenants")
+}
+
+enum TenantType {
+  B2B        // Business to Business (organizations, teams, roles)
+  B2C        // Business to Consumer (individual users)
+  HYBRID     // Supports both models
 }
 
 enum TenantStatus {

@@ -22,17 +22,33 @@ X-Tenant-ID: <tenant_id>
 
 ## Important Updates
 
+### Tenant Types
+Each tenant must specify a business model type during creation:
+- **B2B**: Business-to-business with organizations, teams, and strict security
+- **B2C**: Business-to-consumer with individual users and user-friendly settings
+- **HYBRID**: Supports both B2B and B2C features
+
 ### Tenant Configuration
 - Each tenant can now configure login methods, MFA requirements, and password policies
 - First user in a tenant automatically becomes a tenant admin
 - Account activation can be required based on tenant settings
+- Default settings are applied based on tenant type
 
 ### Default Roles
-The system now includes default B2B roles:
+The system includes different roles based on tenant type:
+
+**B2B Roles:**
 - **super_admin**: Full system access (tenant admins only)
 - **admin**: Administrative access to most features
 - **manager**: Can manage users and teams within organization
 - **member**: Basic user with read access
+
+**B2C Roles:**
+- **premium_user**: Premium tier with additional features
+- **standard_user**: Standard tier user
+- **free_user**: Free tier with limited access
+
+**HYBRID**: Includes both B2B and B2C roles
 
 ## Endpoints
 
@@ -638,6 +654,7 @@ Authorization: Bearer <admin_token>
 {
   "name": "New Company",
   "slug": "new-company",
+  "type": "B2B",  // Required: B2B, B2C, or HYBRID
   "config": {
     "auth": {
       "allowedMethods": ["email", "magic-link"],
@@ -650,6 +667,27 @@ Authorization: Bearer <admin_token>
   }
 }
 ```
+
+**Tenant Type Defaults:**
+
+**B2B:**
+- Organizations and teams enabled
+- Email verification required
+- Stricter password policies
+- MFA required for admins
+- 8-hour session timeout
+
+**B2C:**
+- No organizations/teams
+- Magic links enabled
+- Relaxed password policies
+- Optional email verification
+- 24-hour session timeout
+
+**HYBRID:**
+- All features enabled
+- Balanced security settings
+- 12-hour session timeout
 
 #### List Tenants
 
