@@ -22,10 +22,6 @@ model Tenant {
   dbUser        String?
   dbPassword    String?   @map("db_password_encrypted")
   
-  // Keycloak configuration
-  keycloakRealm String?
-  keycloakClientId String?
-  keycloakClientSecret String? @map("keycloak_client_secret_encrypted")
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -43,7 +39,6 @@ enum TenantStatus {
 // User model (per-tenant database)
 model User {
   id            String    @id @default(cuid())
-  keycloakId    String    @unique
   email         String    @unique
   passwordHash  String?   @map("password_hash")
   profile       Json?     @default("{}")

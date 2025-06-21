@@ -66,7 +66,6 @@ describe('AuthService', () => {
       mockDb.user.findUnique.mockReturnValueOnce({
         id: 'user-123',
         email: 'test@example.com',
-        keycloakId: 'kc-123',
         memberships: [],
         mfaSettings: [],
       })
@@ -105,7 +104,6 @@ describe('AuthService', () => {
       mockDb.user.findUnique.mockReturnValueOnce({
         id: 'user-123',
         email: 'test@example.com',
-        keycloakId: 'kc-123',
         memberships: [],
         mfaSettings: [{ type: 'TOTP', enabled: true }],
       })

@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { dbManager } from '@user-service/database'
 import { CacheService } from '../services/cache.service'
-import { KeycloakService } from '../services/keycloak.service'
 
 const app = new Hono()
 const cache = CacheService.getInstance()
@@ -21,7 +20,6 @@ app.get('/live', async (c) => {
   const checks = {
     database: 'unknown',
     redis: 'unknown',
-    keycloak: 'unknown',
   }
   
   // Check database
@@ -39,15 +37,6 @@ app.get('/live', async (c) => {
     checks.redis = 'healthy'
   } catch (error) {
     checks.redis = 'unhealthy'
-  }
-  
-  // Check Keycloak
-  try {
-    const keycloak = KeycloakService.getInstance()
-    await keycloak.healthCheck()
-    checks.keycloak = 'healthy'
-  } catch (error) {
-    checks.keycloak = 'unhealthy'
   }
   
   const allHealthy = Object.values(checks).every(status => status === 'healthy')

@@ -245,17 +245,9 @@ export class SocialAuthService {
           throw new ValidationError('Registration requires invitation')
         }
         
-        // Create Keycloak user
-        const keycloakUser = await this.createKeycloakUser(
-          tenant!.keycloakRealm!,
-          userInfo.email,
-          userInfo.name
-        )
-        
         // Create user with social auth
         user = await db.user.create({
           data: {
-            keycloakId: keycloakUser.id,
             email: userInfo.email,
             userType: 'INDIVIDUAL',
             profile: {
@@ -498,13 +490,6 @@ export class SocialAuthService {
     return socialAuths
   }
   
-  private async createKeycloakUser(realm: string, email: string, name?: string) {
-    // This would integrate with Keycloak service
-    // For now, return mock data
-    return {
-      id: `keycloak-${generateSecureToken(16)}`,
-    }
-  }
 }
 
 export const socialAuthService = new SocialAuthService()

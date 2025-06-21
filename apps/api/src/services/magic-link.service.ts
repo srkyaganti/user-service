@@ -44,11 +44,8 @@ export class MagicLinkService {
       }
       
       // Create user without password
-      const keycloakUser = await this.createKeycloakUser(tenant.keycloakRealm!, email)
-      
       user = await db.user.create({
         data: {
-          keycloakId: keycloakUser.id,
           email,
           userType: 'INDIVIDUAL',
         },
@@ -210,13 +207,6 @@ export class MagicLinkService {
     }
   }
   
-  private async createKeycloakUser(realm: string, email: string) {
-    // This would integrate with Keycloak service
-    // For now, return mock data
-    return {
-      id: `keycloak-${generateSecureToken(16)}`,
-    }
-  }
 }
 
 export const magicLinkService = new MagicLinkService()

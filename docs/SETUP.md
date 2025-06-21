@@ -7,10 +7,9 @@ This guide provides detailed instructions for setting up the User Service in dif
 1. [Development Setup](#development-setup)
 2. [Production Setup](#production-setup)
 3. [Database Configuration](#database-configuration)
-4. [Keycloak Integration](#keycloak-integration)
-5. [Email Configuration](#email-configuration)
-6. [Environment Variables](#environment-variables)
-7. [Troubleshooting](#troubleshooting)
+4. [Email Configuration](#email-configuration)
+5. [Environment Variables](#environment-variables)
+6. [Troubleshooting](#troubleshooting)
 
 ## Development Setup
 
@@ -229,39 +228,6 @@ GRANT ALL PRIVILEGES ON DATABASE tenant_acme TO tenant_acme_user;
 DATABASE_URL="postgresql://tenant_acme_user:tenant_password@localhost:5432/tenant_acme" bun run db:push
 ```
 
-## Keycloak Integration
-
-### Keycloak Setup
-
-1. **Start Keycloak:**
-
-```bash
-docker run -d \
-  --name keycloak \
-  -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
-  quay.io/keycloak/keycloak:latest start-dev
-```
-
-2. **Configure Keycloak:**
-
-Access Keycloak at `http://localhost:8080` and:
-
-- Create a new realm for each tenant
-- Create a client for the User Service
-- Configure client settings:
-  - Client Protocol: `openid-connect`
-  - Access Type: `confidential`
-  - Valid Redirect URIs: `http://localhost:3000/*`
-
-3. **Update environment variables:**
-
-```env
-KEYCLOAK_URL="http://localhost:8080"
-KEYCLOAK_ADMIN_CLIENT_ID="admin-cli"
-KEYCLOAK_ADMIN_CLIENT_SECRET="your-admin-secret"
-```
 
 ## Email Configuration
 

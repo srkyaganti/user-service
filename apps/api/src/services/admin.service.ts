@@ -63,9 +63,6 @@ export class AdminService {
     // Create database for tenant
     const dbConfig = await this.createTenantDatabase(slug)
     
-    // Create Keycloak realm
-    const keycloakConfig = await this.createKeycloakRealm(slug)
-    
     // Create tenant record
     const tenant = await dbManager.createTenant({
       name: data.name,
@@ -75,9 +72,6 @@ export class AdminService {
       dbName: dbConfig.database,
       dbUser: dbConfig.user,
       dbPassword: await encrypt(dbConfig.password),
-      keycloakRealm: keycloakConfig.realm,
-      keycloakClientId: keycloakConfig.clientId,
-      keycloakClientSecret: await encrypt(keycloakConfig.clientSecret),
     })
     
     // Initialize tenant database schema
@@ -201,7 +195,6 @@ export class AdminService {
       },
     })
     
-    // TODO: Disable Keycloak realm
     
     logger.warn({ tenantId, reason }, 'Tenant suspended')
     
@@ -228,7 +221,6 @@ export class AdminService {
       },
     })
     
-    // TODO: Enable Keycloak realm
     
     logger.info({ tenantId }, 'Tenant reactivated')
     
@@ -254,7 +246,6 @@ export class AdminService {
     })
     
     // TODO: Archive database
-    // TODO: Archive Keycloak realm
     
     logger.warn({ tenantId }, 'Tenant archived')
     
@@ -333,15 +324,6 @@ export class AdminService {
     }
   }
   
-  private async createKeycloakRealm(slug: string) {
-    // This would create actual Keycloak realm
-    // For now, return mock config
-    return {
-      realm: `tenant-${slug}`,
-      clientId: `tenant-${slug}-client`,
-      clientSecret: generateSlug(32),
-    }
-  }
   
   private async initializeTenantSchema(tenantId: string) {
     // This would run Prisma migrations on tenant database

@@ -38,7 +38,7 @@ A comprehensive, production-ready multi-tenant authentication and user managemen
 - **Runtime**: [Bun](https://bun.sh/) - Fast JavaScript runtime
 - **Framework**: [Hono](https://hono.dev/) - Lightweight web framework
 - **Database**: PostgreSQL with [Prisma](https://www.prisma.io/) ORM
-- **Authentication**: JWT, Keycloak integration
+- **Authentication**: JWT with secure token generation
 - **Caching**: Redis
 - **Job Queue**: BullMQ
 - **Email**: Nodemailer with template support
@@ -50,7 +50,6 @@ A comprehensive, production-ready multi-tenant authentication and user managemen
 - PostgreSQL 14+
 - Redis 6+
 - Docker & Docker Compose (optional)
-- Keycloak (optional, for advanced IAM features)
 
 ## 🚀 Quick Start
 

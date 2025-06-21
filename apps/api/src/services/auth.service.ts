@@ -12,7 +12,6 @@ import {
   getClientIp,
   getUserAgent,
 } from '@user-service/shared'
-import { KeycloakService } from './keycloak.service'
 import { CacheService } from './cache.service'
 import { EventService } from './event.service'
 import { generateTokens, verifyRefreshToken } from '../lib/jwt'
@@ -20,7 +19,6 @@ import { hashPassword, verifyPassword, generateSecureToken } from '../lib/crypto
 import { logger } from '../lib/logger'
 import type { User, Organization } from '@user-service/database'
 
-const keycloak = KeycloakService.getInstance()
 const cache = CacheService.getInstance()
 const events = EventService.getInstance()
 
@@ -52,12 +50,12 @@ export class AuthService {
       throw new AuthenticationError('Invalid credentials')
     }
     
-    // Verify password with Keycloak
-    const isValidPassword = await keycloak.verifyUserCredentials(
-      tenant.keycloakRealm!,
-      data.email,
-      data.password
-    )
+    // Verify password
+    if (!user.passwordHash) {
+      throw new AuthenticationError('Password not set')
+    }
+    
+    const isValidPassword = await verifyPassword(data.password, user.passwordHash)
     
     if (!isValidPassword) {
       // Log failed attempt
@@ -220,23 +218,14 @@ export class AuthService {
       throw new ValidationError('Organization membership required')
     }
     
-    // Create user in Keycloak
-    const keycloakUser = await keycloak.createUser(tenant.keycloakRealm!, {
-      email: data.email,
-      password: data.password,
-      firstName: data.profile?.firstName,
-      lastName: data.profile?.lastName,
-      attributes: {
-        tenantId,
-        userType: organizationId ? 'ORGANIZATIONAL' : 'INDIVIDUAL',
-      },
-    })
+    // Hash password
+    const passwordHash = await hashPassword(data.password)
     
     // Create user in database
     const user = await db.user.create({
       data: {
-        keycloakId: keycloakUser.id,
         email: data.email,
+        passwordHash,
         profile: data.profile || {},
         userType: organizationId ? 'ORGANIZATIONAL' : 'INDIVIDUAL',
         memberships: organizationId ? {
@@ -254,9 +243,6 @@ export class AuthService {
         },
       },
     })
-    
-    // Send verification email
-    await keycloak.sendVerificationEmail(tenant.keycloakRealm!, keycloakUser.id)
     
     // Generate tokens
     const tokens = await generateTokens({
