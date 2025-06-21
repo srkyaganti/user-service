@@ -1,0 +1,205 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: postgresql://postgres:password@localhost:5433/userservice_test
+  REDIS_URL: redis://localhost:6380
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        test-type: [unit, integration, e2e]
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: userservice_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 'latest'
+      
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      
+      - name: Setup test environment
+        run: |
+          cp .env.test .env
+          bun run db:generate
+          bun run db:push
+      
+      - name: Run ${{ matrix.test-type }} tests
+        run: bun run test:${{ matrix.test-type }}
+      
+      - name: Upload coverage reports
+        if: matrix.test-type == 'unit'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 'latest'
+      
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      
+      - name: Run linter
+        run: bun run lint
+      
+      - name: Check formatting
+        run: bun run format --check
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 'latest'
+      
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      
+      - name: Run security audit
+        run: bun audit
+
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 'latest'
+      
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      
+      - name: Generate Prisma client
+        run: bun run db:generate
+      
+      - name: Build application
+        run: bun run build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: dist/
+
+  test-coverage:
+    name: Test Coverage Report
+    runs-on: ubuntu-latest
+    needs: test
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: userservice_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 'latest'
+      
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      
+      - name: Setup test environment
+        run: |
+          cp .env.test .env
+          bun run db:generate
+          bun run db:push
+      
+      - name: Run tests with coverage
+        run: bun run test:coverage
+      
+      - name: Generate coverage report
+        run: bun run coverage:report
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ./coverage
+          flags: integration
+          name: codecov-umbrella
