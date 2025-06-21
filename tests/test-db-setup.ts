@@ -90,7 +90,7 @@ export class TestDatabaseManager {
     }
   }
 
-  async createTestTenant(slug: string = 'test-tenant'): Promise<any> {
+  async createTestTenant(slug: string = 'test-tenant', type: 'B2B' | 'B2C' | 'HYBRID' = 'B2B'): Promise<any> {
     const centralDb = await dbManager.getCentralDb()
     
     // Create tenant in central database
@@ -98,6 +98,7 @@ export class TestDatabaseManager {
       data: {
         slug,
         name: `Test Tenant ${slug}`,
+        type,
         config: {
           auth: {
             allowedMethods: ['email', 'magic-link', 'social'],
