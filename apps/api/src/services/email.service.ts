@@ -97,6 +97,13 @@ export class EmailService {
     return this.sendEmail(email, template)
   }
   
+  async sendActivationEmail(email: string, data: {
+    activationUrl: string
+  }) {
+    const template = this.getActivationEmailTemplate(data)
+    return this.sendEmail(email, template)
+  }
+  
   async sendPasswordResetEmail(email: string, data: {
     name?: string
     resetUrl: string
@@ -262,6 +269,53 @@ The User Service Team`,
     <p style="word-break: break-all;">${data.invitationUrl}</p>
     <p>This invitation will expire in 7 days.</p>
     <div class="footer">
+      <p>Best regards,<br>The User Service Team</p>
+    </div>
+  </div>
+</body>
+</html>
+      `,
+    }
+  }
+  
+  private getActivationEmailTemplate(data: {
+    activationUrl: string
+  }): EmailTemplate {
+    return {
+      subject: 'Activate your account',
+      text: `Welcome!
+
+Please activate your account by clicking the link below:
+
+${data.activationUrl}
+
+This link will expire in 24 hours.
+
+If you didn't create an account, you can safely ignore this email.
+
+Best regards,
+The User Service Team`,
+      html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .button { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; }
+    .footer { margin-top: 40px; font-size: 14px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Welcome!</h2>
+    <p>Thank you for signing up. Please activate your account by clicking the button below:</p>
+    <p><a href="${data.activationUrl}" class="button">Activate Account</a></p>
+    <p>Or copy and paste this link into your browser:</p>
+    <p style="word-break: break-all;">${data.activationUrl}</p>
+    <p>This link will expire in 24 hours.</p>
+    <div class="footer">
+      <p>If you didn't create an account, you can safely ignore this email.</p>
       <p>Best regards,<br>The User Service Team</p>
     </div>
   </div>

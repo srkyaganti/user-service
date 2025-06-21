@@ -9,12 +9,14 @@ A comprehensive, production-ready multi-tenant authentication and user managemen
 - **Multi-Factor Authentication (MFA)**: TOTP (Google Authenticator) and WebAuthn (Passkeys)
 - **Session Management**: Device tracking, concurrent session control
 - **JWT-based Authentication**: Secure token generation and validation
+- **Account Activation**: Optional email verification with customizable requirements
 
 ### User Management
 - **Profile Management**: Avatar upload, profile updates, email changes
 - **Account Security**: Password policies, account deletion, audit logging
 - **Device Management**: Track and manage trusted devices
 - **User Search**: Find users by email or profile data
+- **Default Roles**: B2B-ready with super_admin, admin, manager, and member roles
 
 ### Organization & Teams
 - **Multi-tenant Organizations**: Create and manage organizations
@@ -22,16 +24,26 @@ A comprehensive, production-ready multi-tenant authentication and user managemen
 - **Role-Based Access Control (RBAC)**: Owner, Admin, Member, Guest roles
 - **Invitation System**: Email-based invitations with expiration
 
+### Tenant Configuration (NEW)
+- **Login Method Control**: Enable/disable specific authentication methods per tenant
+- **MFA Enforcement**: Require MFA for all users or admins only
+- **Password Policies**: Customizable password requirements per tenant
+- **Account Activation**: Require email verification before account access
+- **Session Configuration**: Customizable session timeout and token expiry
+
 ### Security & Compliance
 - **Audit Logging**: Track all user actions and system events
 - **Rate Limiting**: Protect against abuse
 - **Email Verification**: Ensure valid email addresses
 - **Secure Password Storage**: Using Argon2 hashing
+- **Tenant Admin Privileges**: First user becomes admin, can grant/revoke admin access
 
 ### Admin Features
 - **Tenant Management**: Create, suspend, and manage tenants
 - **System Monitoring**: View system-wide statistics
 - **Tenant Isolation**: Complete data isolation between tenants
+- **Tenant Settings**: Configure authentication methods, MFA, and password policies
+- **User Role Management**: Assign and manage default roles for B2B use cases
 
 ## 🛠️ Tech Stack
 

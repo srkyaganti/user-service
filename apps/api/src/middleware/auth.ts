@@ -70,6 +70,8 @@ export async function authMiddleware(c: Context, next: Next) {
     }
     
     c.set('user', authUser)
+    c.set('userId', payload.sub)
+    c.set('tenantId', payload.tenantId)
     c.set('sessionId', payload.sessionId)
     
     await next()

@@ -14,6 +14,8 @@ import {
 } from '@user-service/shared'
 import { CacheService } from './cache.service'
 import { EventService } from './event.service'
+import { TenantSettingsService } from './tenant-settings.service'
+import { UserActivationService } from './user-activation.service'
 import { generateTokens, verifyRefreshToken } from '../lib/jwt'
 import { hashPassword, verifyPassword, generateSecureToken } from '../lib/crypto'
 import { logger } from '../lib/logger'
@@ -21,6 +23,8 @@ import type { User, Organization } from '@user-service/database'
 
 const cache = CacheService.getInstance()
 const events = EventService.getInstance()
+const tenantSettings = new TenantSettingsService()
+const activationService = new UserActivationService()
 
 export class AuthService {
   async login(tenantId: string, data: LoginDto & { ipAddress: string; userAgent: string }) {
@@ -29,6 +33,12 @@ export class AuthService {
     
     if (!tenant) {
       throw new NotFoundError('Tenant')
+    }
+    
+    // Check if email/password login is enabled
+    const isEmailPasswordEnabled = await tenantSettings.isLoginMethodEnabled(tenantId, 'emailPassword')
+    if (!isEmailPasswordEnabled) {
+      throw new AuthenticationError('Email/password login is disabled for this tenant')
     }
     
     // Find user
@@ -50,6 +60,11 @@ export class AuthService {
       throw new AuthenticationError('Invalid credentials')
     }
     
+    // Check if user account is active
+    if (!user.isActive) {
+      throw new AuthenticationError('Account is not activated')
+    }
+    
     // Verify password
     if (!user.passwordHash) {
       throw new AuthenticationError('Password not set')
@@ -69,8 +84,9 @@ export class AuthService {
       throw new AuthenticationError('Invalid credentials')
     }
     
-    // Check if MFA is required
-    const requiresMFA = user.mfaSettings.length > 0 || tenant.config.auth?.mfaRequired
+    // Check if MFA is required based on tenant settings
+    const isMfaRequired = await tenantSettings.isMfaRequired(tenantId, user.isTenantAdmin)
+    const requiresMFA = user.mfaSettings.length > 0 || isMfaRequired
     
     if (requiresMFA) {
       // Generate MFA session token
@@ -218,8 +234,21 @@ export class AuthService {
       throw new ValidationError('Organization membership required')
     }
     
+    // Validate password against tenant policy
+    const passwordValidation = await tenantSettings.validatePassword(tenantId, data.password)
+    if (!passwordValidation.valid) {
+      throw new ValidationError(passwordValidation.errors.join(', '))
+    }
+    
     // Hash password
     const passwordHash = await hashPassword(data.password)
+    
+    // Check if this is the first user (will be admin)
+    const userCount = await db.user.count()
+    const isFirstUser = userCount === 0
+    
+    // Check if activation is required
+    const requiresActivation = await tenantSettings.isActivationRequired(tenantId)
     
     // Create user in database
     const user = await db.user.create({
@@ -228,6 +257,9 @@ export class AuthService {
         passwordHash,
         profile: data.profile || {},
         userType: organizationId ? 'ORGANIZATIONAL' : 'INDIVIDUAL',
+        isTenantAdmin: isFirstUser,
+        isActive: !requiresActivation,
+        activatedAt: !requiresActivation ? new Date() : null,
         memberships: organizationId ? {
           create: {
             organizationId,
@@ -244,7 +276,35 @@ export class AuthService {
       },
     })
     
-    // Generate tokens
+    // Initialize system roles if this is the first user
+    if (isFirstUser) {
+      await tenantSettings.initializeSystemRoles(tenantId)
+    }
+    
+    // Assign default role
+    await tenantSettings.assignDefaultRole(tenantId, user.id, isFirstUser)
+    
+    // Send activation email if required
+    if (requiresActivation) {
+      await activationService.sendActivationEmail(tenantId, user.id, user.email)
+      
+      // Publish event
+      await events.publish(EVENTS.USER_CREATED, {
+        userId: user.id,
+        email: user.email,
+        organizationId,
+        requiresActivation: true,
+      })
+      
+      return {
+        user: this.sanitizeUser(user),
+        requiresActivation: true,
+        message: 'Account created. Please check your email to activate your account.',
+        organizations: user.memberships.map(m => m.organization),
+      }
+    }
+    
+    // Generate tokens only if activation is not required
     const tokens = await generateTokens({
       userId: user.id,
       email: user.email,

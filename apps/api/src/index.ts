@@ -22,6 +22,8 @@ import { sessionRoutes } from './routes/sessions'
 import { auditRoutes } from './routes/audit'
 import { adminRoutes } from './routes/admin'
 import { healthRoutes } from './routes/health'
+import { tenantSettingsRoutes } from './routes/tenant-settings.routes'
+import { activationRoutes } from './routes/activation.routes'
 
 // Import middleware
 import { errorHandler } from './middleware/error'
@@ -91,6 +93,7 @@ app.doc('/api/docs/openapi.json', {
     { name: 'users', description: 'User management' },
     { name: 'organizations', description: 'Organization management' },
     { name: 'admin', description: 'Admin operations' },
+    { name: 'tenant', description: 'Tenant settings and configuration' },
   ],
 })
 
@@ -114,6 +117,8 @@ api.route('/devices', deviceRoutes)
 api.route('/sessions', sessionRoutes)
 api.route('/audit', auditRoutes)
 api.route('/admin', adminRoutes)
+api.route('/tenant', tenantSettingsRoutes)
+api.route('/activation', activationRoutes)
 
 // Error handling
 app.onError(errorHandler)

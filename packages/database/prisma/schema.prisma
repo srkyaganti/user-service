@@ -22,6 +22,8 @@ model Tenant {
   dbUser        String?
   dbPassword    String?   @map("db_password_encrypted")
   
+  // Authentication settings
+  settings      Json      @default("{}") // Login methods, MFA requirements, etc.
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -43,6 +45,9 @@ model User {
   passwordHash  String?   @map("password_hash")
   profile       Json?     @default("{}")
   userType      UserType  @default(INDIVIDUAL)
+  isTenantAdmin Boolean   @default(false) @map("is_tenant_admin")
+  isActive      Boolean   @default(true) @map("is_active")
+  activatedAt   DateTime? @map("activated_at")
   
   memberships   OrganizationMember[]
   devices       Device[]
@@ -50,13 +55,13 @@ model User {
   auditLogs     AuditLog[]
   mfaSettings   MFASetting[]
   socialAuths   SocialAuth[]
+  defaultRoles  UserRole[]
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
   
   @@index([email])
-  @@index([keycloakId])
   @@map("users")
 }
 
@@ -322,4 +327,74 @@ model SocialAuth {
   @@unique([provider, providerId])
   @@index([userId])
   @@map("social_auths")
+}
+
+// Default roles for B2B users
+model Role {
+  id            String    @id @default(cuid())
+  name          String    @unique
+  displayName   String
+  description   String?
+  permissions   String[]  // Array of permission strings
+  isSystem      Boolean   @default(false) // System roles cannot be deleted
+  
+  userRoles     UserRole[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@map("roles")
+}
+
+// User role assignments
+model UserRole {
+  id            String    @id @default(cuid())
+  userId        String
+  roleId        String
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  
+  assignedAt    DateTime  @default(now())
+  
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+// Tenant authentication settings (per-tenant database)
+model TenantSettings {
+  id            String    @id @default("default")
+  
+  // Login methods
+  emailPasswordEnabled    Boolean   @default(true)
+  magicLinkEnabled       Boolean   @default(true)
+  googleAuthEnabled      Boolean   @default(false)
+  githubAuthEnabled      Boolean   @default(false)
+  microsoftAuthEnabled   Boolean   @default(false)
+  
+  // MFA settings
+  mfaRequired            Boolean   @default(false)
+  mfaRequiredForAdmins   Boolean   @default(true)
+  totpEnabled            Boolean   @default(true)
+  webauthnEnabled        Boolean   @default(true)
+  
+  // Account activation
+  requireActivation      Boolean   @default(false)
+  requireMfaForActivation Boolean  @default(false)
+  
+  // Password policy
+  passwordMinLength      Int       @default(8)
+  passwordRequireSpecial Boolean   @default(true)
+  passwordRequireNumber  Boolean   @default(true)
+  passwordRequireUpper   Boolean   @default(true)
+  
+  // Session settings
+  sessionTimeout         Int       @default(86400) // 24 hours in seconds
+  refreshTokenExpiry     Int       @default(2592000) // 30 days in seconds
+  
+  updatedAt             DateTime  @updatedAt
+  
+  @@map("tenant_settings")
 }

@@ -20,6 +20,20 @@ Authorization: Bearer <access_token>
 X-Tenant-ID: <tenant_id>
 ```
 
+## Important Updates
+
+### Tenant Configuration
+- Each tenant can now configure login methods, MFA requirements, and password policies
+- First user in a tenant automatically becomes a tenant admin
+- Account activation can be required based on tenant settings
+
+### Default Roles
+The system now includes default B2B roles:
+- **super_admin**: Full system access (tenant admins only)
+- **admin**: Administrative access to most features
+- **manager**: Can manage users and teams within organization
+- **member**: Basic user with read access
+
 ## Endpoints
 
 ### Authentication
@@ -776,4 +790,228 @@ OpenAPI specification:
 
 ```
 http://localhost:3000/api/docs/openapi.json
+```
+
+### Tenant Settings
+
+#### Get Tenant Settings
+
+```http
+GET /tenant/settings
+```
+
+**Headers:**
+- Authorization: Bearer <access_token>
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "default",
+    "emailPasswordEnabled": true,
+    "magicLinkEnabled": true,
+    "googleAuthEnabled": false,
+    "githubAuthEnabled": false,
+    "microsoftAuthEnabled": false,
+    "mfaRequired": false,
+    "mfaRequiredForAdmins": true,
+    "totpEnabled": true,
+    "webauthnEnabled": true,
+    "requireActivation": false,
+    "requireMfaForActivation": false,
+    "passwordMinLength": 8,
+    "passwordRequireSpecial": true,
+    "passwordRequireNumber": true,
+    "passwordRequireUpper": true,
+    "sessionTimeout": 86400,
+    "refreshTokenExpiry": 2592000
+  }
+}
+```
+
+#### Update Tenant Settings (Admin Only)
+
+```http
+PUT /tenant/settings
+```
+
+**Headers:**
+- Authorization: Bearer <access_token>
+- Content-Type: application/json
+
+**Request Body:**
+```json
+{
+  "emailPasswordEnabled": true,
+  "magicLinkEnabled": false,
+  "mfaRequired": true,
+  "passwordMinLength": 10
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "default",
+    "emailPasswordEnabled": true,
+    "magicLinkEnabled": false,
+    // ... other settings
+  }
+}
+```
+
+#### Get Tenant Statistics (Admin Only)
+
+```http
+GET /tenant/stats
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "users": {
+      "total": 250,
+      "mfaEnabled": 45
+    },
+    "organizations": {
+      "total": 10
+    },
+    "sessions": {
+      "active": 120
+    }
+  }
+}
+```
+
+#### List Tenant Admins (Admin Only)
+
+```http
+GET /tenant/admins
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "user123",
+      "email": "admin@example.com",
+      "profile": {
+        "name": "Admin User"
+      },
+      "createdAt": "2024-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+#### Grant Admin Privileges (Admin Only)
+
+```http
+POST /tenant/admins/:userId
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "user456",
+    "email": "newadmin@example.com",
+    "isTenantAdmin": true
+  }
+}
+```
+
+#### Revoke Admin Privileges (Admin Only)
+
+```http
+DELETE /tenant/admins/:userId
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "user456",
+    "email": "user@example.com",
+    "isTenantAdmin": false
+  }
+}
+```
+
+#### Enforce MFA (Admin Only)
+
+```http
+POST /tenant/mfa/enforce
+```
+
+**Request Body:**
+```json
+{
+  "adminsOnly": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "MFA enforcement updated successfully"
+}
+```
+
+### Account Activation
+
+#### Activate Account
+
+```http
+POST /activation/activate
+```
+
+**Request Body:**
+```json
+{
+  "token": "activation_token_here"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Account activated successfully",
+  "userId": "user123"
+}
+```
+
+#### Resend Activation Email
+
+```http
+POST /activation/resend
+```
+
+**Headers:**
+- X-Tenant-ID: <tenant_id>
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Activation email sent"
+}
 ```
