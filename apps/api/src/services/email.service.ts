@@ -1,136 +1,154 @@
-import nodemailer from 'nodemailer'
-import { getEnvVar } from '@user-service/shared'
-import { logger } from '../lib/logger'
+import { getEnvVar } from "@user-service/shared";
+import nodemailer from "nodemailer";
+import { logger } from "../lib/logger";
 
 interface EmailTemplate {
-  subject: string
-  html: string
-  text: string
+	subject: string;
+	html: string;
+	text: string;
 }
 
 export class EmailService {
-  private static instance: EmailService
-  private transporter: nodemailer.Transporter
-  
-  private constructor() {
-    // Configure transporter based on environment
-    if (process.env.NODE_ENV === 'development') {
-      // Use Mailhog in development
-      this.transporter = nodemailer.createTransport({
-        host: getEnvVar('SMTP_HOST', 'localhost'),
-        port: parseInt(getEnvVar('SMTP_PORT', '1025')),
-        secure: false,
-      })
-    } else {
-      // Production configuration
-      this.transporter = nodemailer.createTransporter({
-        host: getEnvVar('SMTP_HOST'),
-        port: parseInt(getEnvVar('SMTP_PORT')),
-        secure: getEnvVar('SMTP_PORT') === '465',
-        auth: {
-          user: getEnvVar('SMTP_USER'),
-          pass: getEnvVar('SMTP_PASS'),
-        },
-      })
-    }
-    
-    // Verify connection
-    this.transporter.verify((error, success) => {
-      if (error) {
-        logger.error({ error }, 'Email service connection failed')
-      } else {
-        logger.info('Email service connected')
-      }
-    })
-  }
-  
-  static getInstance(): EmailService {
-    if (!EmailService.instance) {
-      EmailService.instance = new EmailService()
-    }
-    return EmailService.instance
-  }
-  
-  async sendEmail(to: string, template: EmailTemplate) {
-    try {
-      const info = await this.transporter.sendMail({
-        from: getEnvVar('SMTP_FROM', 'noreply@userservice.com'),
-        to,
-        subject: template.subject,
-        text: template.text,
-        html: template.html,
-      })
-      
-      logger.info({ messageId: info.messageId, to }, 'Email sent')
-      return info
-    } catch (error) {
-      logger.error({ error, to }, 'Failed to send email')
-      throw error
-    }
-  }
-  
-  // Email templates
-  async sendVerificationEmail(email: string, data: {
-    name?: string
-    verificationUrl: string
-  }) {
-    const template = this.getVerificationEmailTemplate(data)
-    return this.sendEmail(email, template)
-  }
-  
-  async sendMagicLinkEmail(email: string, data: {
-    token: string
-    expiresIn: string
-    loginUrl: string
-  }) {
-    const template = this.getMagicLinkTemplate(data)
-    return this.sendEmail(email, template)
-  }
-  
-  async sendInvitationEmail(email: string, data: {
-    inviterName: string
-    organizationName: string
-    invitationUrl: string
-    message?: string
-  }) {
-    const template = this.getInvitationTemplate(data)
-    return this.sendEmail(email, template)
-  }
-  
-  async sendActivationEmail(email: string, data: {
-    activationUrl: string
-  }) {
-    const template = this.getActivationEmailTemplate(data)
-    return this.sendEmail(email, template)
-  }
-  
-  async sendPasswordResetEmail(email: string, data: {
-    name?: string
-    resetUrl: string
-    expiresIn: string
-  }) {
-    const template = this.getPasswordResetTemplate(data)
-    return this.sendEmail(email, template)
-  }
-  
-  async sendWelcomeEmail(email: string, data: {
-    name?: string
-    loginUrl: string
-  }) {
-    const template = this.getWelcomeTemplate(data)
-    return this.sendEmail(email, template)
-  }
-  
-  // Template generators
-  private getVerificationEmailTemplate(data: {
-    name?: string
-    verificationUrl: string
-  }): EmailTemplate {
-    const greeting = data.name ? `Hi ${data.name},` : 'Hi,'
-    
-    return {
-      subject: 'Verify your email address',
-      text: `${greeting}
+	private static instance: EmailService;
+	private transporter: nodemailer.Transporter;
+
+	private constructor() {
+		// Configure transporter based on environment
+		if (process.env.NODE_ENV === "development") {
+			// Use Mailhog in development
+			this.transporter = nodemailer.createTransport({
+				host: getEnvVar("SMTP_HOST", "localhost"),
+				port: Number.parseInt(getEnvVar("SMTP_PORT", "1025")),
+				secure: false,
+			});
+		} else {
+			// Production configuration
+			this.transporter = nodemailer.createTransporter({
+				host: getEnvVar("SMTP_HOST"),
+				port: Number.parseInt(getEnvVar("SMTP_PORT")),
+				secure: getEnvVar("SMTP_PORT") === "465",
+				auth: {
+					user: getEnvVar("SMTP_USER"),
+					pass: getEnvVar("SMTP_PASS"),
+				},
+			});
+		}
+
+		// Verify connection
+		this.transporter.verify((error, success) => {
+			if (error) {
+				logger.error({ error }, "Email service connection failed");
+			} else {
+				logger.info("Email service connected");
+			}
+		});
+	}
+
+	static getInstance(): EmailService {
+		if (!EmailService.instance) {
+			EmailService.instance = new EmailService();
+		}
+		return EmailService.instance;
+	}
+
+	async sendEmail(to: string, template: EmailTemplate) {
+		try {
+			const info = await this.transporter.sendMail({
+				from: getEnvVar("SMTP_FROM", "noreply@userservice.com"),
+				to,
+				subject: template.subject,
+				text: template.text,
+				html: template.html,
+			});
+
+			logger.info({ messageId: info.messageId, to }, "Email sent");
+			return info;
+		} catch (error) {
+			logger.error({ error, to }, "Failed to send email");
+			throw error;
+		}
+	}
+
+	// Email templates
+	async sendVerificationEmail(
+		email: string,
+		data: {
+			name?: string;
+			verificationUrl: string;
+		},
+	) {
+		const template = this.getVerificationEmailTemplate(data);
+		return this.sendEmail(email, template);
+	}
+
+	async sendMagicLinkEmail(
+		email: string,
+		data: {
+			token: string;
+			expiresIn: string;
+			loginUrl: string;
+		},
+	) {
+		const template = this.getMagicLinkTemplate(data);
+		return this.sendEmail(email, template);
+	}
+
+	async sendInvitationEmail(
+		email: string,
+		data: {
+			inviterName: string;
+			organizationName: string;
+			invitationUrl: string;
+			message?: string;
+		},
+	) {
+		const template = this.getInvitationTemplate(data);
+		return this.sendEmail(email, template);
+	}
+
+	async sendActivationEmail(
+		email: string,
+		data: {
+			activationUrl: string;
+		},
+	) {
+		const template = this.getActivationEmailTemplate(data);
+		return this.sendEmail(email, template);
+	}
+
+	async sendPasswordResetEmail(
+		email: string,
+		data: {
+			name?: string;
+			resetUrl: string;
+			expiresIn: string;
+		},
+	) {
+		const template = this.getPasswordResetTemplate(data);
+		return this.sendEmail(email, template);
+	}
+
+	async sendWelcomeEmail(
+		email: string,
+		data: {
+			name?: string;
+			loginUrl: string;
+		},
+	) {
+		const template = this.getWelcomeTemplate(data);
+		return this.sendEmail(email, template);
+	}
+
+	// Template generators
+	private getVerificationEmailTemplate(data: {
+		name?: string;
+		verificationUrl: string;
+	}): EmailTemplate {
+		const greeting = data.name ? `Hi ${data.name},` : "Hi,";
+
+		return {
+			subject: "Verify your email address",
+			text: `${greeting}
 
 Please verify your email address by clicking the link below:
 
@@ -142,7 +160,7 @@ If you didn't create an account, you can safely ignore this email.
 
 Best regards,
 The User Service Team`,
-      html: `
+			html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -170,17 +188,17 @@ The User Service Team`,
 </body>
 </html>
       `,
-    }
-  }
-  
-  private getMagicLinkTemplate(data: {
-    token: string
-    expiresIn: string
-    loginUrl: string
-  }): EmailTemplate {
-    return {
-      subject: 'Your magic link to sign in',
-      text: `Sign in to your account
+		};
+	}
+
+	private getMagicLinkTemplate(data: {
+		token: string;
+		expiresIn: string;
+		loginUrl: string;
+	}): EmailTemplate {
+		return {
+			subject: "Your magic link to sign in",
+			text: `Sign in to your account
 
 Click the link below to sign in to your account:
 
@@ -192,7 +210,7 @@ If you didn't request this, you can safely ignore this email.
 
 Best regards,
 The User Service Team`,
-      html: `
+			html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -219,22 +237,22 @@ The User Service Team`,
 </body>
 </html>
       `,
-    }
-  }
-  
-  private getInvitationTemplate(data: {
-    inviterName: string
-    organizationName: string
-    invitationUrl: string
-    message?: string
-  }): EmailTemplate {
-    return {
-      subject: `You've been invited to join ${data.organizationName}`,
-      text: `You've been invited!
+		};
+	}
+
+	private getInvitationTemplate(data: {
+		inviterName: string;
+		organizationName: string;
+		invitationUrl: string;
+		message?: string;
+	}): EmailTemplate {
+		return {
+			subject: `You've been invited to join ${data.organizationName}`,
+			text: `You've been invited!
 
 ${data.inviterName} has invited you to join ${data.organizationName}.
 
-${data.message ? `Message from ${data.inviterName}:\n${data.message}\n\n` : ''}Click the link below to accept the invitation:
+${data.message ? `Message from ${data.inviterName}:\n${data.message}\n\n` : ""}Click the link below to accept the invitation:
 
 ${data.invitationUrl}
 
@@ -242,7 +260,7 @@ This invitation will expire in 7 days.
 
 Best regards,
 The User Service Team`,
-      html: `
+			html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -258,12 +276,16 @@ The User Service Team`,
   <div class="container">
     <h2>You've been invited!</h2>
     <p><strong>${data.inviterName}</strong> has invited you to join <strong>${data.organizationName}</strong>.</p>
-    ${data.message ? `
+    ${
+			data.message
+				? `
     <div class="message">
       <p><strong>Message from ${data.inviterName}:</strong></p>
       <p>${data.message}</p>
     </div>
-    ` : ''}
+    `
+				: ""
+		}
     <p><a href="${data.invitationUrl}" class="button">Accept Invitation</a></p>
     <p>Or copy and paste this link into your browser:</p>
     <p style="word-break: break-all;">${data.invitationUrl}</p>
@@ -275,15 +297,15 @@ The User Service Team`,
 </body>
 </html>
       `,
-    }
-  }
-  
-  private getActivationEmailTemplate(data: {
-    activationUrl: string
-  }): EmailTemplate {
-    return {
-      subject: 'Activate your account',
-      text: `Welcome!
+		};
+	}
+
+	private getActivationEmailTemplate(data: {
+		activationUrl: string;
+	}): EmailTemplate {
+		return {
+			subject: "Activate your account",
+			text: `Welcome!
 
 Please activate your account by clicking the link below:
 
@@ -295,7 +317,7 @@ If you didn't create an account, you can safely ignore this email.
 
 Best regards,
 The User Service Team`,
-      html: `
+			html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -322,19 +344,19 @@ The User Service Team`,
 </body>
 </html>
       `,
-    }
-  }
-  
-  private getPasswordResetTemplate(data: {
-    name?: string
-    resetUrl: string
-    expiresIn: string
-  }): EmailTemplate {
-    const greeting = data.name ? `Hi ${data.name},` : 'Hi,'
-    
-    return {
-      subject: 'Reset your password',
-      text: `${greeting}
+		};
+	}
+
+	private getPasswordResetTemplate(data: {
+		name?: string;
+		resetUrl: string;
+		expiresIn: string;
+	}): EmailTemplate {
+		const greeting = data.name ? `Hi ${data.name},` : "Hi,";
+
+		return {
+			subject: "Reset your password",
+			text: `${greeting}
 
 We received a request to reset your password. Click the link below to create a new password:
 
@@ -346,7 +368,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 
 Best regards,
 The User Service Team`,
-      html: `
+			html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -374,18 +396,18 @@ The User Service Team`,
 </body>
 </html>
       `,
-    }
-  }
-  
-  private getWelcomeTemplate(data: {
-    name?: string
-    loginUrl: string
-  }): EmailTemplate {
-    const greeting = data.name ? `Hi ${data.name},` : 'Hi,'
-    
-    return {
-      subject: 'Welcome to User Service!',
-      text: `${greeting}
+		};
+	}
+
+	private getWelcomeTemplate(data: {
+		name?: string;
+		loginUrl: string;
+	}): EmailTemplate {
+		const greeting = data.name ? `Hi ${data.name},` : "Hi,";
+
+		return {
+			subject: "Welcome to User Service!",
+			text: `${greeting}
 
 Welcome to User Service! We're excited to have you on board.
 
@@ -396,7 +418,7 @@ If you have any questions, feel free to reach out to our support team.
 
 Best regards,
 The User Service Team`,
-      html: `
+			html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -422,8 +444,8 @@ The User Service Team`,
 </body>
 </html>
       `,
-    }
-  }
+		};
+	}
 }
 
 // Add nodemailer to dependencies

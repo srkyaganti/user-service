@@ -1,22 +1,22 @@
 {
-  "name": "@user-service/database",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./src/index.ts",
-  "scripts": {
-    "generate": "prisma generate",
-    "migrate": "prisma migrate dev",
-    "migrate:deploy": "prisma migrate deploy",
-    "push": "prisma db push",
-    "studio": "prisma studio",
-    "seed": "bun run src/seed.ts"
-  },
-  "dependencies": {
-    "@prisma/client": "^5.11.0"
-  },
-  "devDependencies": {
-    "prisma": "^5.11.0",
-    "@types/node": "^20.11.24"
-  }
+	"name": "@user-service/database",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"generate": "prisma generate",
+		"migrate": "prisma migrate dev",
+		"migrate:deploy": "prisma migrate deploy",
+		"push": "prisma db push",
+		"studio": "prisma studio",
+		"seed": "bun run src/seed.ts"
+	},
+	"dependencies": {
+		"@prisma/client": "^5.11.0"
+	},
+	"devDependencies": {
+		"prisma": "^5.11.0",
+		"@types/node": "^20.11.24"
+	}
 }

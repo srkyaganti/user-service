@@ -1,531 +1,572 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { MFAService } from '../../apps/api/src/services/mfa.service'
-import { dbManager } from '@user-service/database'
-import { CacheService } from '../../apps/api/src/services/cache.service'
-import { ValidationError, NotFoundError } from '@user-service/shared'
-import { mockDbOperations, mockCache, mockUser } from '../helpers/test-utils'
-import QRCode from 'qrcode'
-import { TOTP } from 'otpauth'
+import { dbManager } from "@user-service/database";
+import { NotFoundError, ValidationError } from "@user-service/shared";
+import { TOTP } from "otpauth";
+import QRCode from "qrcode";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CacheService } from "../../apps/api/src/services/cache.service";
+import { MFAService } from "../../apps/api/src/services/mfa.service";
+import { mockCache, mockDbOperations, mockUser } from "../helpers/test-utils";
 
 // Mock dependencies
-vi.mock('@user-service/database')
-vi.mock('../../apps/api/src/services/cache.service')
-vi.mock('qrcode')
-vi.mock('otpauth')
-vi.mock('@simplewebauthn/server')
+vi.mock("@user-service/database");
+vi.mock("../../apps/api/src/services/cache.service");
+vi.mock("qrcode");
+vi.mock("otpauth");
+vi.mock("@simplewebauthn/server");
 
-describe('MFAService', () => {
-  let mfaService: MFAService
-  
-  const mockTenant = {
-    id: 'tenant-123',
-    slug: 'test-tenant',
-    name: 'Test Tenant',
-  }
+describe("MFAService", () => {
+	let mfaService: MFAService;
 
-  const mockMFASetting = {
-    id: 'mfa-123',
-    userId: 'user-123',
-    type: 'TOTP',
-    secret: 'JBSWY3DPEHPK3PXP',
-    enabled: true,
-    backupCodes: ['123456', '234567', '345678'],
-    createdAt: new Date(),
-  }
+	const mockTenant = {
+		id: "tenant-123",
+		slug: "test-tenant",
+		name: "Test Tenant",
+	};
 
-  beforeEach(() => {
-    mfaService = new MFAService()
-    vi.clearAllMocks()
+	const mockMFASetting = {
+		id: "mfa-123",
+		userId: "user-123",
+		type: "TOTP",
+		secret: "JBSWY3DPEHPK3PXP",
+		enabled: true,
+		backupCodes: ["123456", "234567", "345678"],
+		createdAt: new Date(),
+	};
 
-    // Setup default mocks
-    vi.mocked(dbManager.getClient).mockResolvedValue(mockDbOperations as any)
-    vi.mocked(dbManager.getTenant).mockResolvedValue(mockTenant as any)
-    vi.mocked(CacheService.getInstance).mockReturnValue(mockCache as any)
-  })
+	beforeEach(() => {
+		mfaService = new MFAService();
+		vi.clearAllMocks();
 
-  afterEach(() => {
-    vi.resetAllMocks()
-  })
+		// Setup default mocks
+		vi.mocked(dbManager.getClient).mockResolvedValue(mockDbOperations as any);
+		vi.mocked(dbManager.getTenant).mockResolvedValue(mockTenant as any);
+		vi.mocked(CacheService.getInstance).mockReturnValue(mockCache as any);
+	});
 
-  describe('setupTOTP', () => {
-    it('should successfully setup TOTP for user', async () => {
-      // Arrange
-      const secret = 'JBSWY3DPEHPK3PXP'
-      const qrCodeUrl = 'data:image/png;base64,iVBOR...'
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(mockUser)
-      vi.mocked(QRCode.toDataURL).mockResolvedValue(qrCodeUrl)
-      
-      // Mock TOTP secret generation
-      const mockTOTPInstance = {
-        secret: { base32: secret },
-        toString: () => 'otpauth://totp/Test%20Service:test@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Test%20Service',
-      }
-      vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any)
+	afterEach(() => {
+		vi.resetAllMocks();
+	});
 
-      // Act
-      const result = await mfaService.setupTOTP('tenant-123', 'user-123')
+	describe("setupTOTP", () => {
+		it("should successfully setup TOTP for user", async () => {
+			// Arrange
+			const secret = "JBSWY3DPEHPK3PXP";
+			const qrCodeUrl = "data:image/png;base64,iVBOR...";
 
-      // Assert
-      expect(result).toEqual({
-        setupToken: expect.any(String),
-        secret,
-        qrCode: qrCodeUrl,
-        backupCodes: expect.arrayContaining([
-          expect.any(String),
-          expect.any(String),
-          expect.any(String),
-        ]),
-      })
-      
-      expect(mockCache.set).toHaveBeenCalledWith(
-        expect.stringContaining('totp:setup:'),
-        expect.objectContaining({
-          userId: 'user-123',
-          secret,
-          backupCodes: expect.any(Array),
-        }),
-        expect.any(Number)
-      )
-      expect(QRCode.toDataURL).toHaveBeenCalled()
-    })
+			mockDbOperations.user.findUnique.mockResolvedValue(mockUser);
+			vi.mocked(QRCode.toDataURL).mockResolvedValue(qrCodeUrl);
 
-    it('should throw NotFoundError for non-existent user', async () => {
-      // Arrange
-      mockDbOperations.user.findUnique.mockResolvedValue(null)
+			// Mock TOTP secret generation
+			const mockTOTPInstance = {
+				secret: { base32: secret },
+				toString: () =>
+					"otpauth://totp/Test%20Service:test@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Test%20Service",
+			};
+			vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any);
 
-      // Act & Assert
-      await expect(mfaService.setupTOTP('tenant-123', 'non-existent-user'))
-        .rejects.toThrow(NotFoundError)
-    })
+			// Act
+			const result = await mfaService.setupTOTP("tenant-123", "user-123");
 
-    it('should throw ValidationError if TOTP already enabled', async () => {
-      // Arrange
-      const userWithTOTP = {
-        ...mockUser,
-        mfaSettings: [{ type: 'TOTP', enabled: true }],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP)
+			// Assert
+			expect(result).toEqual({
+				setupToken: expect.any(String),
+				secret,
+				qrCode: qrCodeUrl,
+				backupCodes: expect.arrayContaining([
+					expect.any(String),
+					expect.any(String),
+					expect.any(String),
+				]),
+			});
 
-      // Act & Assert
-      await expect(mfaService.setupTOTP('tenant-123', 'user-123'))
-        .rejects.toThrow(ValidationError)
-    })
-  })
+			expect(mockCache.set).toHaveBeenCalledWith(
+				expect.stringContaining("totp:setup:"),
+				expect.objectContaining({
+					userId: "user-123",
+					secret,
+					backupCodes: expect.any(Array),
+				}),
+				expect.any(Number),
+			);
+			expect(QRCode.toDataURL).toHaveBeenCalled();
+		});
 
-  describe('verifyTOTPSetup', () => {
-    it('should successfully verify TOTP setup', async () => {
-      // Arrange
-      const setupToken = 'setup-token-123'
-      const code = '123456'
-      
-      const setupData = {
-        userId: 'user-123',
-        secret: 'JBSWY3DPEHPK3PXP',
-        backupCodes: ['backup1', 'backup2'],
-      }
-      
-      mockCache.get.mockResolvedValue(setupData)
-      mockDbOperations.mfaSetting = {
-        create: vi.fn().mockResolvedValue(mockMFASetting),
-      }
-      
-      // Mock TOTP validation
-      const mockTOTPInstance = {
-        validate: vi.fn().mockReturnValue(0), // Valid token
-      }
-      vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any)
+		it("should throw NotFoundError for non-existent user", async () => {
+			// Arrange
+			mockDbOperations.user.findUnique.mockResolvedValue(null);
 
-      // Act
-      const result = await mfaService.verifyTOTPSetup('tenant-123', setupToken, code)
+			// Act & Assert
+			await expect(
+				mfaService.setupTOTP("tenant-123", "non-existent-user"),
+			).rejects.toThrow(NotFoundError);
+		});
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockTOTPInstance.validate).toHaveBeenCalledWith({
-        token: code,
-        window: 2,
-      })
-      expect(mockDbOperations.mfaSetting.create).toHaveBeenCalledWith({
-        data: {
-          userId: setupData.userId,
-          type: 'TOTP',
-          secret: setupData.secret,
-          enabled: true,
-          backupCodes: setupData.backupCodes,
-        },
-      })
-      expect(mockCache.del).toHaveBeenCalledWith(`totp:setup:${setupToken}`)
-    })
+		it("should throw ValidationError if TOTP already enabled", async () => {
+			// Arrange
+			const userWithTOTP = {
+				...mockUser,
+				mfaSettings: [{ type: "TOTP", enabled: true }],
+			};
 
-    it('should throw ValidationError for invalid setup token', async () => {
-      // Arrange
-      mockCache.get.mockResolvedValue(null)
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP);
 
-      // Act & Assert
-      await expect(mfaService.verifyTOTPSetup('tenant-123', 'invalid-token', '123456'))
-        .rejects.toThrow(ValidationError)
-    })
+			// Act & Assert
+			await expect(
+				mfaService.setupTOTP("tenant-123", "user-123"),
+			).rejects.toThrow(ValidationError);
+		});
+	});
 
-    it('should throw ValidationError for invalid TOTP code', async () => {
-      // Arrange
-      const setupToken = 'setup-token-123'
-      const code = 'invalid'
-      
-      const setupData = {
-        userId: 'user-123',
-        secret: 'JBSWY3DPEHPK3PXP',
-        backupCodes: ['backup1', 'backup2'],
-      }
-      
-      mockCache.get.mockResolvedValue(setupData)
-      
-      // Mock TOTP validation failure
-      const mockTOTPInstance = {
-        validate: vi.fn().mockReturnValue(null), // Invalid token
-      }
-      vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any)
+	describe("verifyTOTPSetup", () => {
+		it("should successfully verify TOTP setup", async () => {
+			// Arrange
+			const setupToken = "setup-token-123";
+			const code = "123456";
 
-      // Act & Assert
-      await expect(mfaService.verifyTOTPSetup('tenant-123', setupToken, code))
-        .rejects.toThrow(ValidationError)
-    })
-  })
+			const setupData = {
+				userId: "user-123",
+				secret: "JBSWY3DPEHPK3PXP",
+				backupCodes: ["backup1", "backup2"],
+			};
 
-  describe('verifyTOTP', () => {
-    it('should successfully verify TOTP code', async () => {
-      // Arrange
-      const code = '123456'
-      
-      const userWithTOTP = {
-        ...mockUser,
-        mfaSettings: [mockMFASetting],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP)
-      
-      // Mock TOTP validation
-      const mockTOTPInstance = {
-        validate: vi.fn().mockReturnValue(0), // Valid token
-      }
-      vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any)
+			mockCache.get.mockResolvedValue(setupData);
+			mockDbOperations.mfaSetting = {
+				create: vi.fn().mockResolvedValue(mockMFASetting),
+			};
 
-      // Act
-      const result = await mfaService.verifyTOTP('tenant-123', 'user-123', code)
+			// Mock TOTP validation
+			const mockTOTPInstance = {
+				validate: vi.fn().mockReturnValue(0), // Valid token
+			};
+			vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any);
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockTOTPInstance.validate).toHaveBeenCalledWith({
-        token: code,
-        window: 2,
-      })
-    })
+			// Act
+			const result = await mfaService.verifyTOTPSetup(
+				"tenant-123",
+				setupToken,
+				code,
+			);
 
-    it('should successfully verify backup code', async () => {
-      // Arrange
-      const backupCode = '123456'
-      
-      const userWithTOTP = {
-        ...mockUser,
-        mfaSettings: [{
-          ...mockMFASetting,
-          backupCodes: [backupCode, '234567'],
-        }],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP)
-      mockDbOperations.mfaSetting.update = vi.fn().mockResolvedValue(mockMFASetting)
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockTOTPInstance.validate).toHaveBeenCalledWith({
+				token: code,
+				window: 2,
+			});
+			expect(mockDbOperations.mfaSetting.create).toHaveBeenCalledWith({
+				data: {
+					userId: setupData.userId,
+					type: "TOTP",
+					secret: setupData.secret,
+					enabled: true,
+					backupCodes: setupData.backupCodes,
+				},
+			});
+			expect(mockCache.del).toHaveBeenCalledWith(`totp:setup:${setupToken}`);
+		});
 
-      // Act
-      const result = await mfaService.verifyTOTP('tenant-123', 'user-123', backupCode)
+		it("should throw ValidationError for invalid setup token", async () => {
+			// Arrange
+			mockCache.get.mockResolvedValue(null);
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockDbOperations.mfaSetting.update).toHaveBeenCalledWith({
-        where: { id: mockMFASetting.id },
-        data: {
-          backupCodes: ['234567'], // Backup code removed
-        },
-      })
-    })
+			// Act & Assert
+			await expect(
+				mfaService.verifyTOTPSetup("tenant-123", "invalid-token", "123456"),
+			).rejects.toThrow(ValidationError);
+		});
 
-    it('should throw NotFoundError for user without TOTP', async () => {
-      // Arrange
-      const userWithoutTOTP = {
-        ...mockUser,
-        mfaSettings: [],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithoutTOTP)
+		it("should throw ValidationError for invalid TOTP code", async () => {
+			// Arrange
+			const setupToken = "setup-token-123";
+			const code = "invalid";
 
-      // Act & Assert
-      await expect(mfaService.verifyTOTP('tenant-123', 'user-123', '123456'))
-        .rejects.toThrow(NotFoundError)
-    })
+			const setupData = {
+				userId: "user-123",
+				secret: "JBSWY3DPEHPK3PXP",
+				backupCodes: ["backup1", "backup2"],
+			};
 
-    it('should throw ValidationError for invalid TOTP code', async () => {
-      // Arrange
-      const code = 'invalid'
-      
-      const userWithTOTP = {
-        ...mockUser,
-        mfaSettings: [mockMFASetting],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP)
-      
-      // Mock TOTP validation failure
-      const mockTOTPInstance = {
-        validate: vi.fn().mockReturnValue(null), // Invalid token
-      }
-      vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any)
+			mockCache.get.mockResolvedValue(setupData);
 
-      // Act & Assert
-      await expect(mfaService.verifyTOTP('tenant-123', 'user-123', code))
-        .rejects.toThrow(ValidationError)
-    })
-  })
+			// Mock TOTP validation failure
+			const mockTOTPInstance = {
+				validate: vi.fn().mockReturnValue(null), // Invalid token
+			};
+			vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any);
 
-  describe('setupWebAuthn', () => {
-    it('should successfully setup WebAuthn for user', async () => {
-      // Arrange
-      mockDbOperations.user.findUnique.mockResolvedValue(mockUser)
-      
-      // Mock SimpleWebAuthn
-      const mockGenerateRegistrationOptions = vi.fn().mockReturnValue({
-        challenge: 'challenge-123',
-        rp: { name: 'Test Service' },
-        user: { id: 'user-123', name: 'test@example.com' },
-        pubKeyCredParams: [],
-        timeout: 60000,
-        attestation: 'none',
-      })
-      
-      vi.doMock('@simplewebauthn/server', () => ({
-        generateRegistrationOptions: mockGenerateRegistrationOptions,
-      }))
+			// Act & Assert
+			await expect(
+				mfaService.verifyTOTPSetup("tenant-123", setupToken, code),
+			).rejects.toThrow(ValidationError);
+		});
+	});
 
-      // Re-import to get mocked version
-      const { generateRegistrationOptions } = await import('@simplewebauthn/server')
+	describe("verifyTOTP", () => {
+		it("should successfully verify TOTP code", async () => {
+			// Arrange
+			const code = "123456";
 
-      // Act
-      const result = await mfaService.setupWebAuthn('tenant-123', 'user-123')
+			const userWithTOTP = {
+				...mockUser,
+				mfaSettings: [mockMFASetting],
+			};
 
-      // Assert
-      expect(result).toEqual({
-        options: expect.objectContaining({
-          challenge: 'challenge-123',
-        }),
-      })
-      expect(mockCache.set).toHaveBeenCalledWith(
-        expect.stringContaining('webauthn:challenge:'),
-        expect.any(String),
-        expect.any(Number)
-      )
-    })
-  })
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP);
 
-  describe('verifyWebAuthnSetup', () => {
-    it('should successfully verify WebAuthn setup', async () => {
-      // Arrange
-      const credential = {
-        id: 'credential-123',
-        rawId: 'credential-123',
-        response: {
-          attestationObject: 'attestation-object',
-          clientDataJSON: 'client-data-json',
-        },
-        type: 'public-key',
-      }
-      
-      mockCache.get.mockResolvedValue('challenge-123')
-      mockDbOperations.mfaSetting = {
-        create: vi.fn().mockResolvedValue({
-          id: 'mfa-456',
-          type: 'WEBAUTHN',
-          credentialId: 'credential-123',
-        }),
-      }
-      
-      // Mock SimpleWebAuthn verification
-      const mockVerifyRegistrationResponse = vi.fn().mockResolvedValue({
-        verified: true,
-        registrationInfo: {
-          credentialID: new Uint8Array([1, 2, 3]),
-          credentialPublicKey: new Uint8Array([4, 5, 6]),
-          counter: 0,
-        },
-      })
-      
-      vi.doMock('@simplewebauthn/server', () => ({
-        verifyRegistrationResponse: mockVerifyRegistrationResponse,
-      }))
+			// Mock TOTP validation
+			const mockTOTPInstance = {
+				validate: vi.fn().mockReturnValue(0), // Valid token
+			};
+			vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any);
 
-      // Re-import to get mocked version
-      const { verifyRegistrationResponse } = await import('@simplewebauthn/server')
+			// Act
+			const result = await mfaService.verifyTOTP(
+				"tenant-123",
+				"user-123",
+				code,
+			);
 
-      // Act
-      const result = await mfaService.verifyWebAuthnSetup('tenant-123', 'user-123', credential)
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockTOTPInstance.validate).toHaveBeenCalledWith({
+				token: code,
+				window: 2,
+			});
+		});
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockDbOperations.mfaSetting.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          userId: 'user-123',
-          type: 'WEBAUTHN',
-          enabled: true,
-        }),
-      })
-    })
+		it("should successfully verify backup code", async () => {
+			// Arrange
+			const backupCode = "123456";
 
-    it('should throw ValidationError for failed WebAuthn verification', async () => {
-      // Arrange
-      const credential = {
-        id: 'credential-123',
-        rawId: 'credential-123',
-        response: {
-          attestationObject: 'attestation-object',
-          clientDataJSON: 'client-data-json',
-        },
-        type: 'public-key',
-      }
-      
-      mockCache.get.mockResolvedValue('challenge-123')
-      
-      // Mock SimpleWebAuthn verification failure
-      const mockVerifyRegistrationResponse = vi.fn().mockResolvedValue({
-        verified: false,
-      })
-      
-      vi.doMock('@simplewebauthn/server', () => ({
-        verifyRegistrationResponse: mockVerifyRegistrationResponse,
-      }))
+			const userWithTOTP = {
+				...mockUser,
+				mfaSettings: [
+					{
+						...mockMFASetting,
+						backupCodes: [backupCode, "234567"],
+					},
+				],
+			};
 
-      // Act & Assert
-      await expect(mfaService.verifyWebAuthnSetup('tenant-123', 'user-123', credential))
-        .rejects.toThrow(ValidationError)
-    })
-  })
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP);
+			mockDbOperations.mfaSetting.update = vi
+				.fn()
+				.mockResolvedValue(mockMFASetting);
 
-  describe('listMFAMethods', () => {
-    it('should return user MFA methods', async () => {
-      // Arrange
-      const userWithMFA = {
-        ...mockUser,
-        mfaSettings: [
-          { type: 'TOTP', enabled: true, createdAt: new Date() },
-          { type: 'WEBAUTHN', enabled: true, createdAt: new Date() },
-        ],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithMFA)
+			// Act
+			const result = await mfaService.verifyTOTP(
+				"tenant-123",
+				"user-123",
+				backupCode,
+			);
 
-      // Act
-      const result = await mfaService.listMFAMethods('tenant-123', 'user-123')
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockDbOperations.mfaSetting.update).toHaveBeenCalledWith({
+				where: { id: mockMFASetting.id },
+				data: {
+					backupCodes: ["234567"], // Backup code removed
+				},
+			});
+		});
 
-      // Assert
-      expect(result).toEqual({
-        methods: expect.arrayContaining([
-          expect.objectContaining({ type: 'TOTP', enabled: true }),
-          expect.objectContaining({ type: 'WEBAUTHN', enabled: true }),
-        ]),
-      })
-    })
+		it("should throw NotFoundError for user without TOTP", async () => {
+			// Arrange
+			const userWithoutTOTP = {
+				...mockUser,
+				mfaSettings: [],
+			};
 
-    it('should return empty array for user without MFA', async () => {
-      // Arrange
-      const userWithoutMFA = {
-        ...mockUser,
-        mfaSettings: [],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithoutMFA)
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithoutTOTP);
 
-      // Act
-      const result = await mfaService.listMFAMethods('tenant-123', 'user-123')
+			// Act & Assert
+			await expect(
+				mfaService.verifyTOTP("tenant-123", "user-123", "123456"),
+			).rejects.toThrow(NotFoundError);
+		});
 
-      // Assert
-      expect(result).toEqual({ methods: [] })
-    })
-  })
+		it("should throw ValidationError for invalid TOTP code", async () => {
+			// Arrange
+			const code = "invalid";
 
-  describe('disableMFA', () => {
-    it('should successfully disable MFA method', async () => {
-      // Arrange
-      const mfaId = 'mfa-123'
-      
-      mockDbOperations.mfaSetting = {
-        findFirst: vi.fn().mockResolvedValue(mockMFASetting),
-        delete: vi.fn().mockResolvedValue(mockMFASetting),
-      }
+			const userWithTOTP = {
+				...mockUser,
+				mfaSettings: [mockMFASetting],
+			};
 
-      // Act
-      const result = await mfaService.disableMFA('tenant-123', 'user-123', mfaId)
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP);
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockDbOperations.mfaSetting.delete).toHaveBeenCalledWith({
-        where: { id: mfaId },
-      })
-    })
+			// Mock TOTP validation failure
+			const mockTOTPInstance = {
+				validate: vi.fn().mockReturnValue(null), // Invalid token
+			};
+			vi.mocked(TOTP).mockImplementation(() => mockTOTPInstance as any);
 
-    it('should throw NotFoundError for non-existent MFA setting', async () => {
-      // Arrange
-      mockDbOperations.mfaSetting = {
-        findFirst: vi.fn().mockResolvedValue(null),
-      }
+			// Act & Assert
+			await expect(
+				mfaService.verifyTOTP("tenant-123", "user-123", code),
+			).rejects.toThrow(ValidationError);
+		});
+	});
 
-      // Act & Assert
-      await expect(mfaService.disableMFA('tenant-123', 'user-123', 'non-existent'))
-        .rejects.toThrow(NotFoundError)
-    })
-  })
+	describe("setupWebAuthn", () => {
+		it("should successfully setup WebAuthn for user", async () => {
+			// Arrange
+			mockDbOperations.user.findUnique.mockResolvedValue(mockUser);
 
-  describe('generateBackupCodes', () => {
-    it('should generate new backup codes', async () => {
-      // Arrange
-      const userWithTOTP = {
-        ...mockUser,
-        mfaSettings: [mockMFASetting],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP)
-      mockDbOperations.mfaSetting.update = vi.fn().mockResolvedValue({
-        ...mockMFASetting,
-        backupCodes: ['new1', 'new2', 'new3'],
-      })
+			// Mock SimpleWebAuthn
+			const mockGenerateRegistrationOptions = vi.fn().mockReturnValue({
+				challenge: "challenge-123",
+				rp: { name: "Test Service" },
+				user: { id: "user-123", name: "test@example.com" },
+				pubKeyCredParams: [],
+				timeout: 60000,
+				attestation: "none",
+			});
 
-      // Act
-      const result = await mfaService.generateBackupCodes('tenant-123', 'user-123')
+			vi.doMock("@simplewebauthn/server", () => ({
+				generateRegistrationOptions: mockGenerateRegistrationOptions,
+			}));
 
-      // Assert
-      expect(result).toEqual({
-        backupCodes: expect.arrayContaining([
-          expect.any(String),
-          expect.any(String),
-          expect.any(String),
-        ]),
-      })
-      expect(mockDbOperations.mfaSetting.update).toHaveBeenCalledWith({
-        where: { id: mockMFASetting.id },
-        data: {
-          backupCodes: expect.any(Array),
-        },
-      })
-    })
+			// Re-import to get mocked version
+			const { generateRegistrationOptions } = await import(
+				"@simplewebauthn/server"
+			);
 
-    it('should throw NotFoundError for user without MFA', async () => {
-      // Arrange
-      const userWithoutMFA = {
-        ...mockUser,
-        mfaSettings: [],
-      }
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(userWithoutMFA)
+			// Act
+			const result = await mfaService.setupWebAuthn("tenant-123", "user-123");
 
-      // Act & Assert
-      await expect(mfaService.generateBackupCodes('tenant-123', 'user-123'))
-        .rejects.toThrow(NotFoundError)
-    })
-  })
-})
+			// Assert
+			expect(result).toEqual({
+				options: expect.objectContaining({
+					challenge: "challenge-123",
+				}),
+			});
+			expect(mockCache.set).toHaveBeenCalledWith(
+				expect.stringContaining("webauthn:challenge:"),
+				expect.any(String),
+				expect.any(Number),
+			);
+		});
+	});
+
+	describe("verifyWebAuthnSetup", () => {
+		it("should successfully verify WebAuthn setup", async () => {
+			// Arrange
+			const credential = {
+				id: "credential-123",
+				rawId: "credential-123",
+				response: {
+					attestationObject: "attestation-object",
+					clientDataJSON: "client-data-json",
+				},
+				type: "public-key",
+			};
+
+			mockCache.get.mockResolvedValue("challenge-123");
+			mockDbOperations.mfaSetting = {
+				create: vi.fn().mockResolvedValue({
+					id: "mfa-456",
+					type: "WEBAUTHN",
+					credentialId: "credential-123",
+				}),
+			};
+
+			// Mock SimpleWebAuthn verification
+			const mockVerifyRegistrationResponse = vi.fn().mockResolvedValue({
+				verified: true,
+				registrationInfo: {
+					credentialID: new Uint8Array([1, 2, 3]),
+					credentialPublicKey: new Uint8Array([4, 5, 6]),
+					counter: 0,
+				},
+			});
+
+			vi.doMock("@simplewebauthn/server", () => ({
+				verifyRegistrationResponse: mockVerifyRegistrationResponse,
+			}));
+
+			// Re-import to get mocked version
+			const { verifyRegistrationResponse } = await import(
+				"@simplewebauthn/server"
+			);
+
+			// Act
+			const result = await mfaService.verifyWebAuthnSetup(
+				"tenant-123",
+				"user-123",
+				credential,
+			);
+
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockDbOperations.mfaSetting.create).toHaveBeenCalledWith({
+				data: expect.objectContaining({
+					userId: "user-123",
+					type: "WEBAUTHN",
+					enabled: true,
+				}),
+			});
+		});
+
+		it("should throw ValidationError for failed WebAuthn verification", async () => {
+			// Arrange
+			const credential = {
+				id: "credential-123",
+				rawId: "credential-123",
+				response: {
+					attestationObject: "attestation-object",
+					clientDataJSON: "client-data-json",
+				},
+				type: "public-key",
+			};
+
+			mockCache.get.mockResolvedValue("challenge-123");
+
+			// Mock SimpleWebAuthn verification failure
+			const mockVerifyRegistrationResponse = vi.fn().mockResolvedValue({
+				verified: false,
+			});
+
+			vi.doMock("@simplewebauthn/server", () => ({
+				verifyRegistrationResponse: mockVerifyRegistrationResponse,
+			}));
+
+			// Act & Assert
+			await expect(
+				mfaService.verifyWebAuthnSetup("tenant-123", "user-123", credential),
+			).rejects.toThrow(ValidationError);
+		});
+	});
+
+	describe("listMFAMethods", () => {
+		it("should return user MFA methods", async () => {
+			// Arrange
+			const userWithMFA = {
+				...mockUser,
+				mfaSettings: [
+					{ type: "TOTP", enabled: true, createdAt: new Date() },
+					{ type: "WEBAUTHN", enabled: true, createdAt: new Date() },
+				],
+			};
+
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithMFA);
+
+			// Act
+			const result = await mfaService.listMFAMethods("tenant-123", "user-123");
+
+			// Assert
+			expect(result).toEqual({
+				methods: expect.arrayContaining([
+					expect.objectContaining({ type: "TOTP", enabled: true }),
+					expect.objectContaining({ type: "WEBAUTHN", enabled: true }),
+				]),
+			});
+		});
+
+		it("should return empty array for user without MFA", async () => {
+			// Arrange
+			const userWithoutMFA = {
+				...mockUser,
+				mfaSettings: [],
+			};
+
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithoutMFA);
+
+			// Act
+			const result = await mfaService.listMFAMethods("tenant-123", "user-123");
+
+			// Assert
+			expect(result).toEqual({ methods: [] });
+		});
+	});
+
+	describe("disableMFA", () => {
+		it("should successfully disable MFA method", async () => {
+			// Arrange
+			const mfaId = "mfa-123";
+
+			mockDbOperations.mfaSetting = {
+				findFirst: vi.fn().mockResolvedValue(mockMFASetting),
+				delete: vi.fn().mockResolvedValue(mockMFASetting),
+			};
+
+			// Act
+			const result = await mfaService.disableMFA(
+				"tenant-123",
+				"user-123",
+				mfaId,
+			);
+
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockDbOperations.mfaSetting.delete).toHaveBeenCalledWith({
+				where: { id: mfaId },
+			});
+		});
+
+		it("should throw NotFoundError for non-existent MFA setting", async () => {
+			// Arrange
+			mockDbOperations.mfaSetting = {
+				findFirst: vi.fn().mockResolvedValue(null),
+			};
+
+			// Act & Assert
+			await expect(
+				mfaService.disableMFA("tenant-123", "user-123", "non-existent"),
+			).rejects.toThrow(NotFoundError);
+		});
+	});
+
+	describe("generateBackupCodes", () => {
+		it("should generate new backup codes", async () => {
+			// Arrange
+			const userWithTOTP = {
+				...mockUser,
+				mfaSettings: [mockMFASetting],
+			};
+
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithTOTP);
+			mockDbOperations.mfaSetting.update = vi.fn().mockResolvedValue({
+				...mockMFASetting,
+				backupCodes: ["new1", "new2", "new3"],
+			});
+
+			// Act
+			const result = await mfaService.generateBackupCodes(
+				"tenant-123",
+				"user-123",
+			);
+
+			// Assert
+			expect(result).toEqual({
+				backupCodes: expect.arrayContaining([
+					expect.any(String),
+					expect.any(String),
+					expect.any(String),
+				]),
+			});
+			expect(mockDbOperations.mfaSetting.update).toHaveBeenCalledWith({
+				where: { id: mockMFASetting.id },
+				data: {
+					backupCodes: expect.any(Array),
+				},
+			});
+		});
+
+		it("should throw NotFoundError for user without MFA", async () => {
+			// Arrange
+			const userWithoutMFA = {
+				...mockUser,
+				mfaSettings: [],
+			};
+
+			mockDbOperations.user.findUnique.mockResolvedValue(userWithoutMFA);
+
+			// Act & Assert
+			await expect(
+				mfaService.generateBackupCodes("tenant-123", "user-123"),
+			).rejects.toThrow(NotFoundError);
+		});
+	});
+});

@@ -1,610 +1,612 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { TeamService } from '../../apps/api/src/services/team.service'
-import { dbManager } from '@user-service/database'
-import { EventService } from '../../apps/api/src/services/event.service'
-import { 
-  ValidationError, 
-  NotFoundError, 
-  ForbiddenError,
-  ConflictError 
-} from '@user-service/shared'
-import { mockDbOperations, mockEvents } from '../helpers/test-utils'
+import { dbManager } from "@user-service/database";
+import {
+	ConflictError,
+	ForbiddenError,
+	NotFoundError,
+	ValidationError,
+} from "@user-service/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EventService } from "../../apps/api/src/services/event.service";
+import { TeamService } from "../../apps/api/src/services/team.service";
+import { mockDbOperations, mockEvents } from "../helpers/test-utils";
 
 // Mock dependencies
-vi.mock('@user-service/database')
-vi.mock('../../apps/api/src/services/event.service')
+vi.mock("@user-service/database");
+vi.mock("../../apps/api/src/services/event.service");
 
-describe('TeamService', () => {
-  let teamService: TeamService
-  
-  const mockTeam = {
-    id: 'team-123',
-    name: 'Engineering Team',
-    description: 'Engineering team description',
-    organizationId: 'org-123',
-    permissions: ['repos.read', 'repos.write'],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }
+describe("TeamService", () => {
+	let teamService: TeamService;
 
-  const mockMembership = {
-    id: 'membership-123',
-    userId: 'user-123',
-    organizationId: 'org-123',
-    role: 'ADMIN',
-  }
+	const mockTeam = {
+		id: "team-123",
+		name: "Engineering Team",
+		description: "Engineering team description",
+		organizationId: "org-123",
+		permissions: ["repos.read", "repos.write"],
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	};
 
-  const mockTeamMembership = {
-    id: 'team-membership-123',
-    userId: 'user-123',
-    teamId: 'team-123',
-    role: 'member',
-    joinedAt: new Date(),
-  }
+	const mockMembership = {
+		id: "membership-123",
+		userId: "user-123",
+		organizationId: "org-123",
+		role: "ADMIN",
+	};
 
-  beforeEach(() => {
-    teamService = new TeamService()
-    vi.clearAllMocks()
+	const mockTeamMembership = {
+		id: "team-membership-123",
+		userId: "user-123",
+		teamId: "team-123",
+		role: "member",
+		joinedAt: new Date(),
+	};
 
-    // Setup default mocks
-    vi.mocked(dbManager.getClient).mockResolvedValue(mockDbOperations as any)
-    vi.mocked(EventService.getInstance).mockReturnValue(mockEvents as any)
-  })
+	beforeEach(() => {
+		teamService = new TeamService();
+		vi.clearAllMocks();
 
-  afterEach(() => {
-    vi.resetAllMocks()
-  })
+		// Setup default mocks
+		vi.mocked(dbManager.getClient).mockResolvedValue(mockDbOperations as any);
+		vi.mocked(EventService.getInstance).mockReturnValue(mockEvents as any);
+	});
 
-  describe('createTeam', () => {
-    it('should successfully create team', async () => {
-      // Arrange
-      const createData = {
-        name: 'New Team',
-        description: 'New team description',
-        permissions: ['repos.read'],
-      }
-      
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.team.create.mockResolvedValue({
-        ...mockTeam,
-        ...createData,
-        members: [mockTeamMembership],
-      })
+	afterEach(() => {
+		vi.resetAllMocks();
+	});
 
-      // Act
-      const result = await teamService.createTeam(
-        'tenant-123',
-        'user-123',
-        'org-123',
-        createData
-      )
+	describe("createTeam", () => {
+		it("should successfully create team", async () => {
+			// Arrange
+			const createData = {
+				name: "New Team",
+				description: "New team description",
+				permissions: ["repos.read"],
+			};
 
-      // Assert
-      expect(result).toEqual(
-        expect.objectContaining({
-          name: createData.name,
-          description: createData.description,
-          permissions: createData.permissions,
-        })
-      )
-      
-      expect(mockDbOperations.team.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          ...createData,
-          organizationId: 'org-123',
-        }),
-        include: { members: { include: { user: true } } },
-      })
-      expect(mockEvents.publish).toHaveBeenCalled()
-    })
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.team.create.mockResolvedValue({
+				...mockTeam,
+				...createData,
+				members: [mockTeamMembership],
+			});
 
-    it('should throw ForbiddenError for insufficient permissions', async () => {
-      // Arrange
-      const memberMembership = {
-        ...mockMembership,
-        role: 'MEMBER',
-      }
-      
-      const createData = {
-        name: 'New Team',
-        description: 'Description',
-      }
-      
-      mockDbOperations.membership.findFirst.mockResolvedValue(memberMembership)
+			// Act
+			const result = await teamService.createTeam(
+				"tenant-123",
+				"user-123",
+				"org-123",
+				createData,
+			);
 
-      // Act & Assert
-      await expect(teamService.createTeam(
-        'tenant-123',
-        'user-123',
-        'org-123',
-        createData
-      )).rejects.toThrow(ForbiddenError)
-      
-      expect(mockDbOperations.team.create).not.toHaveBeenCalled()
-    })
+			// Assert
+			expect(result).toEqual(
+				expect.objectContaining({
+					name: createData.name,
+					description: createData.description,
+					permissions: createData.permissions,
+				}),
+			);
 
-    it('should throw NotFoundError for non-member user', async () => {
-      // Arrange
-      const createData = {
-        name: 'New Team',
-        description: 'Description',
-      }
-      
-      mockDbOperations.membership.findFirst.mockResolvedValue(null)
+			expect(mockDbOperations.team.create).toHaveBeenCalledWith({
+				data: expect.objectContaining({
+					...createData,
+					organizationId: "org-123",
+				}),
+				include: { members: { include: { user: true } } },
+			});
+			expect(mockEvents.publish).toHaveBeenCalled();
+		});
 
-      // Act & Assert
-      await expect(teamService.createTeam(
-        'tenant-123',
-        'user-123',
-        'org-123',
-        createData
-      )).rejects.toThrow(NotFoundError)
-    })
-  })
+		it("should throw ForbiddenError for insufficient permissions", async () => {
+			// Arrange
+			const memberMembership = {
+				...mockMembership,
+				role: "MEMBER",
+			};
 
-  describe('getTeam', () => {
-    it('should successfully get team', async () => {
-      // Arrange
-      const teamWithMembers = {
-        ...mockTeam,
-        members: [
-          {
-            ...mockTeamMembership,
-            user: {
-              id: 'user-123',
-              email: 'test@example.com',
-              profile: { name: 'Test User' },
-            },
-          },
-        ],
-        organization: {
-          id: 'org-123',
-          name: 'Test Org',
-        },
-      }
-      
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.team.findUnique.mockResolvedValue(teamWithMembers)
+			const createData = {
+				name: "New Team",
+				description: "Description",
+			};
 
-      // Act
-      const result = await teamService.getTeam(
-        'tenant-123',
-        'user-123',
-        'team-123'
-      )
+			mockDbOperations.membership.findFirst.mockResolvedValue(memberMembership);
 
-      // Assert
-      expect(result).toEqual(
-        expect.objectContaining({
-          id: mockTeam.id,
-          name: mockTeam.name,
-          members: expect.arrayContaining([
-            expect.objectContaining({
-              user: expect.objectContaining({ id: 'user-123' }),
-              role: mockTeamMembership.role,
-            }),
-          ]),
-        })
-      )
-    })
+			// Act & Assert
+			await expect(
+				teamService.createTeam("tenant-123", "user-123", "org-123", createData),
+			).rejects.toThrow(ForbiddenError);
 
-    it('should throw NotFoundError for non-existent team', async () => {
-      // Arrange
-      mockDbOperations.team.findUnique.mockResolvedValue(null)
+			expect(mockDbOperations.team.create).not.toHaveBeenCalled();
+		});
 
-      // Act & Assert
-      await expect(teamService.getTeam(
-        'tenant-123',
-        'user-123',
-        'non-existent'
-      )).rejects.toThrow(NotFoundError)
-    })
+		it("should throw NotFoundError for non-member user", async () => {
+			// Arrange
+			const createData = {
+				name: "New Team",
+				description: "Description",
+			};
 
-    it('should throw ForbiddenError for non-organization member', async () => {
-      // Arrange
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(null)
+			mockDbOperations.membership.findFirst.mockResolvedValue(null);
 
-      // Act & Assert
-      await expect(teamService.getTeam(
-        'tenant-123',
-        'user-123',
-        'team-123'
-      )).rejects.toThrow(ForbiddenError)
-    })
-  })
+			// Act & Assert
+			await expect(
+				teamService.createTeam("tenant-123", "user-123", "org-123", createData),
+			).rejects.toThrow(NotFoundError);
+		});
+	});
 
-  describe('updateTeam', () => {
-    it('should successfully update team', async () => {
-      // Arrange
-      const updateData = {
-        name: 'Updated Team Name',
-        description: 'Updated description',
-        permissions: ['repos.read', 'repos.write', 'issues.read'],
-      }
-      
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.team.update.mockResolvedValue({
-        ...mockTeam,
-        ...updateData,
-      })
+	describe("getTeam", () => {
+		it("should successfully get team", async () => {
+			// Arrange
+			const teamWithMembers = {
+				...mockTeam,
+				members: [
+					{
+						...mockTeamMembership,
+						user: {
+							id: "user-123",
+							email: "test@example.com",
+							profile: { name: "Test User" },
+						},
+					},
+				],
+				organization: {
+					id: "org-123",
+					name: "Test Org",
+				},
+			};
 
-      // Act
-      const result = await teamService.updateTeam(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        updateData
-      )
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.team.findUnique.mockResolvedValue(teamWithMembers);
 
-      // Assert
-      expect(result).toEqual(
-        expect.objectContaining({
-          name: updateData.name,
-          description: updateData.description,
-          permissions: updateData.permissions,
-        })
-      )
-      
-      expect(mockDbOperations.team.update).toHaveBeenCalledWith({
-        where: { id: 'team-123' },
-        data: updateData,
-      })
-      expect(mockEvents.publish).toHaveBeenCalled()
-    })
+			// Act
+			const result = await teamService.getTeam(
+				"tenant-123",
+				"user-123",
+				"team-123",
+			);
 
-    it('should throw ForbiddenError for insufficient permissions', async () => {
-      // Arrange
-      const memberMembership = {
-        ...mockMembership,
-        role: 'MEMBER',
-      }
-      
-      const updateData = { name: 'Updated Name' }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(memberMembership)
+			// Assert
+			expect(result).toEqual(
+				expect.objectContaining({
+					id: mockTeam.id,
+					name: mockTeam.name,
+					members: expect.arrayContaining([
+						expect.objectContaining({
+							user: expect.objectContaining({ id: "user-123" }),
+							role: mockTeamMembership.role,
+						}),
+					]),
+				}),
+			);
+		});
 
-      // Act & Assert
-      await expect(teamService.updateTeam(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        updateData
-      )).rejects.toThrow(ForbiddenError)
-      
-      expect(mockDbOperations.team.update).not.toHaveBeenCalled()
-    })
-  })
+		it("should throw NotFoundError for non-existent team", async () => {
+			// Arrange
+			mockDbOperations.team.findUnique.mockResolvedValue(null);
 
-  describe('deleteTeam', () => {
-    it('should successfully delete team', async () => {
-      // Arrange
-      const adminMembership = {
-        ...mockMembership,
-        role: 'ADMIN',
-      }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(adminMembership)
-      mockDbOperations.team.delete.mockResolvedValue(mockTeam)
+			// Act & Assert
+			await expect(
+				teamService.getTeam("tenant-123", "user-123", "non-existent"),
+			).rejects.toThrow(NotFoundError);
+		});
 
-      // Act
-      const result = await teamService.deleteTeam(
-        'tenant-123',
-        'user-123',
-        'team-123'
-      )
+		it("should throw ForbiddenError for non-organization member", async () => {
+			// Arrange
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(null);
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockDbOperations.team.delete).toHaveBeenCalledWith({
-        where: { id: 'team-123' },
-      })
-      expect(mockEvents.publish).toHaveBeenCalled()
-    })
+			// Act & Assert
+			await expect(
+				teamService.getTeam("tenant-123", "user-123", "team-123"),
+			).rejects.toThrow(ForbiddenError);
+		});
+	});
 
-    it('should throw ForbiddenError for insufficient permissions', async () => {
-      // Arrange
-      const memberMembership = {
-        ...mockMembership,
-        role: 'MEMBER',
-      }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(memberMembership)
+	describe("updateTeam", () => {
+		it("should successfully update team", async () => {
+			// Arrange
+			const updateData = {
+				name: "Updated Team Name",
+				description: "Updated description",
+				permissions: ["repos.read", "repos.write", "issues.read"],
+			};
 
-      // Act & Assert
-      await expect(teamService.deleteTeam(
-        'tenant-123',
-        'user-123',
-        'team-123'
-      )).rejects.toThrow(ForbiddenError)
-      
-      expect(mockDbOperations.team.delete).not.toHaveBeenCalled()
-    })
-  })
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.team.update.mockResolvedValue({
+				...mockTeam,
+				...updateData,
+			});
 
-  describe('listTeams', () => {
-    it('should return organization teams', async () => {
-      // Arrange
-      const teams = [
-        mockTeam,
-        {
-          ...mockTeam,
-          id: 'team-456',
-          name: 'Another Team',
-        },
-      ]
-      
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.team.findMany.mockResolvedValue(teams)
+			// Act
+			const result = await teamService.updateTeam(
+				"tenant-123",
+				"user-123",
+				"team-123",
+				updateData,
+			);
 
-      // Act
-      const result = await teamService.listTeams(
-        'tenant-123',
-        'user-123',
-        'org-123'
-      )
+			// Assert
+			expect(result).toEqual(
+				expect.objectContaining({
+					name: updateData.name,
+					description: updateData.description,
+					permissions: updateData.permissions,
+				}),
+			);
 
-      // Assert
-      expect(result).toEqual({
-        teams: expect.arrayContaining([
-          expect.objectContaining({ id: 'team-123' }),
-          expect.objectContaining({ id: 'team-456' }),
-        ]),
-      })
-      
-      expect(mockDbOperations.team.findMany).toHaveBeenCalledWith({
-        where: { organizationId: 'org-123' },
-        orderBy: { createdAt: 'desc' },
-      })
-    })
+			expect(mockDbOperations.team.update).toHaveBeenCalledWith({
+				where: { id: "team-123" },
+				data: updateData,
+			});
+			expect(mockEvents.publish).toHaveBeenCalled();
+		});
 
-    it('should support pagination', async () => {
-      // Arrange
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.team.findMany.mockResolvedValue([])
+		it("should throw ForbiddenError for insufficient permissions", async () => {
+			// Arrange
+			const memberMembership = {
+				...mockMembership,
+				role: "MEMBER",
+			};
 
-      // Act
-      const result = await teamService.listTeams(
-        'tenant-123',
-        'user-123',
-        'org-123',
-        { limit: 10, offset: 20 }
-      )
+			const updateData = { name: "Updated Name" };
 
-      // Assert
-      expect(mockDbOperations.team.findMany).toHaveBeenCalledWith({
-        where: { organizationId: 'org-123' },
-        take: 10,
-        skip: 20,
-        orderBy: { createdAt: 'desc' },
-      })
-    })
-  })
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(memberMembership);
 
-  describe('addTeamMember', () => {
-    it('should successfully add member to team', async () => {
-      // Arrange
-      const newMemberData = {
-        email: 'newmember@example.com',
-        role: 'member' as const,
-      }
-      
-      const newUser = {
-        id: 'new-user-123',
-        email: newMemberData.email,
-      }
-      
-      const orgMembership = {
-        id: 'org-membership-123',
-        userId: newUser.id,
-        organizationId: 'org-123',
-        role: 'MEMBER',
-      }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst
-        .mockResolvedValueOnce(mockMembership) // Permission check
-        .mockResolvedValueOnce(orgMembership) // Org membership check
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(newUser)
-      mockDbOperations.teamMembership.findFirst.mockResolvedValue(null) // No existing team membership
-      mockDbOperations.teamMembership.create.mockResolvedValue({
-        id: 'new-team-membership-123',
-        userId: newUser.id,
-        teamId: 'team-123',
-        role: newMemberData.role,
-        user: newUser,
-      })
+			// Act & Assert
+			await expect(
+				teamService.updateTeam(
+					"tenant-123",
+					"user-123",
+					"team-123",
+					updateData,
+				),
+			).rejects.toThrow(ForbiddenError);
 
-      // Act
-      const result = await teamService.addTeamMember(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        newMemberData
-      )
+			expect(mockDbOperations.team.update).not.toHaveBeenCalled();
+		});
+	});
 
-      // Assert
-      expect(result).toEqual(
-        expect.objectContaining({
-          id: 'new-team-membership-123',
-          role: newMemberData.role,
-          user: expect.objectContaining({ email: newMemberData.email }),
-        })
-      )
-      
-      expect(mockDbOperations.teamMembership.create).toHaveBeenCalledWith({
-        data: {
-          userId: newUser.id,
-          teamId: 'team-123',
-          role: newMemberData.role,
-        },
-        include: { user: true },
-      })
-      expect(mockEvents.publish).toHaveBeenCalled()
-    })
+	describe("deleteTeam", () => {
+		it("should successfully delete team", async () => {
+			// Arrange
+			const adminMembership = {
+				...mockMembership,
+				role: "ADMIN",
+			};
 
-    it('should throw NotFoundError for user not in organization', async () => {
-      // Arrange
-      const newMemberData = {
-        email: 'outsider@example.com',
-        role: 'member' as const,
-      }
-      
-      const outsideUser = {
-        id: 'outside-user-123',
-        email: newMemberData.email,
-      }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst
-        .mockResolvedValueOnce(mockMembership) // Permission check
-        .mockResolvedValueOnce(null) // No org membership
-      
-      mockDbOperations.user.findUnique.mockResolvedValue(outsideUser)
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(adminMembership);
+			mockDbOperations.team.delete.mockResolvedValue(mockTeam);
 
-      // Act & Assert
-      await expect(teamService.addTeamMember(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        newMemberData
-      )).rejects.toThrow(NotFoundError)
-    })
+			// Act
+			const result = await teamService.deleteTeam(
+				"tenant-123",
+				"user-123",
+				"team-123",
+			);
 
-    it('should throw ConflictError for existing team member', async () => {
-      // Arrange
-      const existingMemberData = {
-        email: 'existing@example.com',
-        role: 'member' as const,
-      }
-      
-      const existingUser = {
-        id: 'existing-user-123',
-        email: existingMemberData.email,
-      }
-      
-      const existingTeamMembership = {
-        id: 'existing-team-membership-123',
-        userId: existingUser.id,
-        teamId: 'team-123',
-      }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.user.findUnique.mockResolvedValue(existingUser)
-      mockDbOperations.teamMembership.findFirst.mockResolvedValue(existingTeamMembership)
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockDbOperations.team.delete).toHaveBeenCalledWith({
+				where: { id: "team-123" },
+			});
+			expect(mockEvents.publish).toHaveBeenCalled();
+		});
 
-      // Act & Assert
-      await expect(teamService.addTeamMember(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        existingMemberData
-      )).rejects.toThrow(ConflictError)
-    })
-  })
+		it("should throw ForbiddenError for insufficient permissions", async () => {
+			// Arrange
+			const memberMembership = {
+				...mockMembership,
+				role: "MEMBER",
+			};
 
-  describe('removeTeamMember', () => {
-    it('should successfully remove member from team', async () => {
-      // Arrange
-      const targetTeamMembership = {
-        id: 'target-team-membership-123',
-        userId: 'target-user-123',
-        teamId: 'team-123',
-        role: 'member',
-      }
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.teamMembership.findFirst.mockResolvedValue(targetTeamMembership)
-      mockDbOperations.teamMembership.delete.mockResolvedValue(targetTeamMembership)
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(memberMembership);
 
-      // Act
-      const result = await teamService.removeTeamMember(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        'target-team-membership-123'
-      )
+			// Act & Assert
+			await expect(
+				teamService.deleteTeam("tenant-123", "user-123", "team-123"),
+			).rejects.toThrow(ForbiddenError);
 
-      // Assert
-      expect(result).toEqual({ success: true })
-      expect(mockDbOperations.teamMembership.delete).toHaveBeenCalledWith({
-        where: { id: 'target-team-membership-123' },
-      })
-      expect(mockEvents.publish).toHaveBeenCalled()
-    })
+			expect(mockDbOperations.team.delete).not.toHaveBeenCalled();
+		});
+	});
 
-    it('should throw NotFoundError for non-existent team membership', async () => {
-      // Arrange
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.teamMembership.findFirst.mockResolvedValue(null)
+	describe("listTeams", () => {
+		it("should return organization teams", async () => {
+			// Arrange
+			const teams = [
+				mockTeam,
+				{
+					...mockTeam,
+					id: "team-456",
+					name: "Another Team",
+				},
+			];
 
-      // Act & Assert
-      await expect(teamService.removeTeamMember(
-        'tenant-123',
-        'user-123',
-        'team-123',
-        'non-existent-membership'
-      )).rejects.toThrow(NotFoundError)
-    })
-  })
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.team.findMany.mockResolvedValue(teams);
 
-  describe('getTeamMembers', () => {
-    it('should return team members', async () => {
-      // Arrange
-      const teamMembers = [
-        {
-          ...mockTeamMembership,
-          user: {
-            id: 'user-123',
-            email: 'member1@example.com',
-            profile: { name: 'Member 1' },
-          },
-        },
-        {
-          id: 'team-membership-456',
-          userId: 'user-456',
-          teamId: 'team-123',
-          role: 'lead',
-          user: {
-            id: 'user-456',
-            email: 'member2@example.com',
-            profile: { name: 'Member 2' },
-          },
-        },
-      ]
-      
-      mockDbOperations.team.findUnique.mockResolvedValue(mockTeam)
-      mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership)
-      mockDbOperations.teamMembership.findMany.mockResolvedValue(teamMembers)
+			// Act
+			const result = await teamService.listTeams(
+				"tenant-123",
+				"user-123",
+				"org-123",
+			);
 
-      // Act
-      const result = await teamService.getTeamMembers(
-        'tenant-123',
-        'user-123',
-        'team-123'
-      )
+			// Assert
+			expect(result).toEqual({
+				teams: expect.arrayContaining([
+					expect.objectContaining({ id: "team-123" }),
+					expect.objectContaining({ id: "team-456" }),
+				]),
+			});
 
-      // Assert
-      expect(result).toEqual({
-        members: expect.arrayContaining([
-          expect.objectContaining({
-            role: 'member',
-            user: expect.objectContaining({ email: 'member1@example.com' }),
-          }),
-          expect.objectContaining({
-            role: 'lead',
-            user: expect.objectContaining({ email: 'member2@example.com' }),
-          }),
-        ]),
-      })
-    })
-  })
-})
+			expect(mockDbOperations.team.findMany).toHaveBeenCalledWith({
+				where: { organizationId: "org-123" },
+				orderBy: { createdAt: "desc" },
+			});
+		});
+
+		it("should support pagination", async () => {
+			// Arrange
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.team.findMany.mockResolvedValue([]);
+
+			// Act
+			const result = await teamService.listTeams(
+				"tenant-123",
+				"user-123",
+				"org-123",
+				{ limit: 10, offset: 20 },
+			);
+
+			// Assert
+			expect(mockDbOperations.team.findMany).toHaveBeenCalledWith({
+				where: { organizationId: "org-123" },
+				take: 10,
+				skip: 20,
+				orderBy: { createdAt: "desc" },
+			});
+		});
+	});
+
+	describe("addTeamMember", () => {
+		it("should successfully add member to team", async () => {
+			// Arrange
+			const newMemberData = {
+				email: "newmember@example.com",
+				role: "member" as const,
+			};
+
+			const newUser = {
+				id: "new-user-123",
+				email: newMemberData.email,
+			};
+
+			const orgMembership = {
+				id: "org-membership-123",
+				userId: newUser.id,
+				organizationId: "org-123",
+				role: "MEMBER",
+			};
+
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst
+				.mockResolvedValueOnce(mockMembership) // Permission check
+				.mockResolvedValueOnce(orgMembership); // Org membership check
+
+			mockDbOperations.user.findUnique.mockResolvedValue(newUser);
+			mockDbOperations.teamMembership.findFirst.mockResolvedValue(null); // No existing team membership
+			mockDbOperations.teamMembership.create.mockResolvedValue({
+				id: "new-team-membership-123",
+				userId: newUser.id,
+				teamId: "team-123",
+				role: newMemberData.role,
+				user: newUser,
+			});
+
+			// Act
+			const result = await teamService.addTeamMember(
+				"tenant-123",
+				"user-123",
+				"team-123",
+				newMemberData,
+			);
+
+			// Assert
+			expect(result).toEqual(
+				expect.objectContaining({
+					id: "new-team-membership-123",
+					role: newMemberData.role,
+					user: expect.objectContaining({ email: newMemberData.email }),
+				}),
+			);
+
+			expect(mockDbOperations.teamMembership.create).toHaveBeenCalledWith({
+				data: {
+					userId: newUser.id,
+					teamId: "team-123",
+					role: newMemberData.role,
+				},
+				include: { user: true },
+			});
+			expect(mockEvents.publish).toHaveBeenCalled();
+		});
+
+		it("should throw NotFoundError for user not in organization", async () => {
+			// Arrange
+			const newMemberData = {
+				email: "outsider@example.com",
+				role: "member" as const,
+			};
+
+			const outsideUser = {
+				id: "outside-user-123",
+				email: newMemberData.email,
+			};
+
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst
+				.mockResolvedValueOnce(mockMembership) // Permission check
+				.mockResolvedValueOnce(null); // No org membership
+
+			mockDbOperations.user.findUnique.mockResolvedValue(outsideUser);
+
+			// Act & Assert
+			await expect(
+				teamService.addTeamMember(
+					"tenant-123",
+					"user-123",
+					"team-123",
+					newMemberData,
+				),
+			).rejects.toThrow(NotFoundError);
+		});
+
+		it("should throw ConflictError for existing team member", async () => {
+			// Arrange
+			const existingMemberData = {
+				email: "existing@example.com",
+				role: "member" as const,
+			};
+
+			const existingUser = {
+				id: "existing-user-123",
+				email: existingMemberData.email,
+			};
+
+			const existingTeamMembership = {
+				id: "existing-team-membership-123",
+				userId: existingUser.id,
+				teamId: "team-123",
+			};
+
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.user.findUnique.mockResolvedValue(existingUser);
+			mockDbOperations.teamMembership.findFirst.mockResolvedValue(
+				existingTeamMembership,
+			);
+
+			// Act & Assert
+			await expect(
+				teamService.addTeamMember(
+					"tenant-123",
+					"user-123",
+					"team-123",
+					existingMemberData,
+				),
+			).rejects.toThrow(ConflictError);
+		});
+	});
+
+	describe("removeTeamMember", () => {
+		it("should successfully remove member from team", async () => {
+			// Arrange
+			const targetTeamMembership = {
+				id: "target-team-membership-123",
+				userId: "target-user-123",
+				teamId: "team-123",
+				role: "member",
+			};
+
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.teamMembership.findFirst.mockResolvedValue(
+				targetTeamMembership,
+			);
+			mockDbOperations.teamMembership.delete.mockResolvedValue(
+				targetTeamMembership,
+			);
+
+			// Act
+			const result = await teamService.removeTeamMember(
+				"tenant-123",
+				"user-123",
+				"team-123",
+				"target-team-membership-123",
+			);
+
+			// Assert
+			expect(result).toEqual({ success: true });
+			expect(mockDbOperations.teamMembership.delete).toHaveBeenCalledWith({
+				where: { id: "target-team-membership-123" },
+			});
+			expect(mockEvents.publish).toHaveBeenCalled();
+		});
+
+		it("should throw NotFoundError for non-existent team membership", async () => {
+			// Arrange
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.teamMembership.findFirst.mockResolvedValue(null);
+
+			// Act & Assert
+			await expect(
+				teamService.removeTeamMember(
+					"tenant-123",
+					"user-123",
+					"team-123",
+					"non-existent-membership",
+				),
+			).rejects.toThrow(NotFoundError);
+		});
+	});
+
+	describe("getTeamMembers", () => {
+		it("should return team members", async () => {
+			// Arrange
+			const teamMembers = [
+				{
+					...mockTeamMembership,
+					user: {
+						id: "user-123",
+						email: "member1@example.com",
+						profile: { name: "Member 1" },
+					},
+				},
+				{
+					id: "team-membership-456",
+					userId: "user-456",
+					teamId: "team-123",
+					role: "lead",
+					user: {
+						id: "user-456",
+						email: "member2@example.com",
+						profile: { name: "Member 2" },
+					},
+				},
+			];
+
+			mockDbOperations.team.findUnique.mockResolvedValue(mockTeam);
+			mockDbOperations.membership.findFirst.mockResolvedValue(mockMembership);
+			mockDbOperations.teamMembership.findMany.mockResolvedValue(teamMembers);
+
+			// Act
+			const result = await teamService.getTeamMembers(
+				"tenant-123",
+				"user-123",
+				"team-123",
+			);
+
+			// Assert
+			expect(result).toEqual({
+				members: expect.arrayContaining([
+					expect.objectContaining({
+						role: "member",
+						user: expect.objectContaining({ email: "member1@example.com" }),
+					}),
+					expect.objectContaining({
+						role: "lead",
+						user: expect.objectContaining({ email: "member2@example.com" }),
+					}),
+				]),
+			});
+		});
+	});
+});

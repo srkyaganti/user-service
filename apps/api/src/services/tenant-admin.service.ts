@@ -1,288 +1,287 @@
-import { getDbClient } from '../lib/database'
-import { prisma } from '../lib/prisma'
-import type { User, Tenant } from '@repo/database'
-import { TenantSettingsService } from './tenant-settings.service'
-import { AuditService } from './audit.service'
+import type { Tenant, User } from "@repo/database";
+import { getDbClient } from "../lib/database";
+import { prisma } from "../lib/prisma";
+import { AuditService } from "./audit.service";
+import { TenantSettingsService } from "./tenant-settings.service";
 
 export class TenantAdminService {
-  private tenantSettingsService: TenantSettingsService
-  private auditService: AuditService
+	private tenantSettingsService: TenantSettingsService;
+	private auditService: AuditService;
 
-  constructor() {
-    this.tenantSettingsService = new TenantSettingsService()
-    this.auditService = new AuditService()
-  }
+	constructor() {
+		this.tenantSettingsService = new TenantSettingsService();
+		this.auditService = new AuditService();
+	}
 
-  /**
-   * Check if user is tenant admin
-   */
-  async isTenantAdmin(tenantId: string, userId: string): Promise<boolean> {
-    const db = await getDbClient(tenantId)
-    
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { isTenantAdmin: true }
-    })
+	/**
+	 * Check if user is tenant admin
+	 */
+	async isTenantAdmin(tenantId: string, userId: string): Promise<boolean> {
+		const db = await getDbClient(tenantId);
 
-    return user?.isTenantAdmin || false
-  }
+		const user = await db.user.findUnique({
+			where: { id: userId },
+			select: { isTenantAdmin: true },
+		});
 
-  /**
-   * Grant tenant admin privileges
-   */
-  async grantAdminPrivileges(
-    tenantId: string,
-    userId: string,
-    grantedBy: string
-  ): Promise<User> {
-    const db = await getDbClient(tenantId)
+		return user?.isTenantAdmin || false;
+	}
 
-    const user = await db.user.update({
-      where: { id: userId },
-      data: { isTenantAdmin: true }
-    })
+	/**
+	 * Grant tenant admin privileges
+	 */
+	async grantAdminPrivileges(
+		tenantId: string,
+		userId: string,
+		grantedBy: string,
+	): Promise<User> {
+		const db = await getDbClient(tenantId);
 
-    // Assign super_admin role
-    const superAdminRole = await db.role.findUnique({
-      where: { name: 'super_admin' }
-    })
+		const user = await db.user.update({
+			where: { id: userId },
+			data: { isTenantAdmin: true },
+		});
 
-    if (superAdminRole) {
-      await db.userRole.upsert({
-        where: {
-          userId_roleId: {
-            userId,
-            roleId: superAdminRole.id
-          }
-        },
-        create: {
-          userId,
-          roleId: superAdminRole.id
-        },
-        update: {}
-      })
-    }
+		// Assign super_admin role
+		const superAdminRole = await db.role.findUnique({
+			where: { name: "super_admin" },
+		});
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId: grantedBy,
-      action: 'tenant_admin.grant',
-      resource: 'user',
-      resourceId: userId,
-      metadata: {
-        targetUserId: userId
-      }
-    })
+		if (superAdminRole) {
+			await db.userRole.upsert({
+				where: {
+					userId_roleId: {
+						userId,
+						roleId: superAdminRole.id,
+					},
+				},
+				create: {
+					userId,
+					roleId: superAdminRole.id,
+				},
+				update: {},
+			});
+		}
 
-    return user
-  }
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId: grantedBy,
+			action: "tenant_admin.grant",
+			resource: "user",
+			resourceId: userId,
+			metadata: {
+				targetUserId: userId,
+			},
+		});
 
-  /**
-   * Revoke tenant admin privileges
-   */
-  async revokeAdminPrivileges(
-    tenantId: string,
-    userId: string,
-    revokedBy: string
-  ): Promise<User> {
-    const db = await getDbClient(tenantId)
+		return user;
+	}
 
-    const user = await db.user.update({
-      where: { id: userId },
-      data: { isTenantAdmin: false }
-    })
+	/**
+	 * Revoke tenant admin privileges
+	 */
+	async revokeAdminPrivileges(
+		tenantId: string,
+		userId: string,
+		revokedBy: string,
+	): Promise<User> {
+		const db = await getDbClient(tenantId);
 
-    // Remove super_admin role
-    const superAdminRole = await db.role.findUnique({
-      where: { name: 'super_admin' }
-    })
+		const user = await db.user.update({
+			where: { id: userId },
+			data: { isTenantAdmin: false },
+		});
 
-    if (superAdminRole) {
-      await db.userRole.deleteMany({
-        where: {
-          userId,
-          roleId: superAdminRole.id
-        }
-      })
-    }
+		// Remove super_admin role
+		const superAdminRole = await db.role.findUnique({
+			where: { name: "super_admin" },
+		});
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId: revokedBy,
-      action: 'tenant_admin.revoke',
-      resource: 'user',
-      resourceId: userId,
-      metadata: {
-        targetUserId: userId
-      }
-    })
+		if (superAdminRole) {
+			await db.userRole.deleteMany({
+				where: {
+					userId,
+					roleId: superAdminRole.id,
+				},
+			});
+		}
 
-    return user
-  }
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId: revokedBy,
+			action: "tenant_admin.revoke",
+			resource: "user",
+			resourceId: userId,
+			metadata: {
+				targetUserId: userId,
+			},
+		});
 
-  /**
-   * List all tenant admins
-   */
-  async listAdmins(tenantId: string): Promise<User[]> {
-    const db = await getDbClient(tenantId)
+		return user;
+	}
 
-    return db.user.findMany({
-      where: {
-        isTenantAdmin: true,
-        deletedAt: null
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    })
-  }
+	/**
+	 * List all tenant admins
+	 */
+	async listAdmins(tenantId: string): Promise<User[]> {
+		const db = await getDbClient(tenantId);
 
-  /**
-   * Update tenant settings (admin only)
-   */
-  async updateTenantSettings(
-    tenantId: string,
-    adminId: string,
-    settings: any
-  ): Promise<any> {
-    // Verify admin privileges
-    const isAdmin = await this.isTenantAdmin(tenantId, adminId)
-    if (!isAdmin) {
-      throw new Error('Unauthorized: Admin privileges required')
-    }
+		return db.user.findMany({
+			where: {
+				isTenantAdmin: true,
+				deletedAt: null,
+			},
+			orderBy: {
+				createdAt: "desc",
+			},
+		});
+	}
 
-    // Update settings
-    const updatedSettings = await this.tenantSettingsService.updateSettings(tenantId, settings)
+	/**
+	 * Update tenant settings (admin only)
+	 */
+	async updateTenantSettings(
+		tenantId: string,
+		adminId: string,
+		settings: any,
+	): Promise<any> {
+		// Verify admin privileges
+		const isAdmin = await this.isTenantAdmin(tenantId, adminId);
+		if (!isAdmin) {
+			throw new Error("Unauthorized: Admin privileges required");
+		}
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId: adminId,
-      action: 'tenant_settings.update',
-      resource: 'tenant_settings',
-      resourceId: 'default',
-      metadata: {
-        changes: settings
-      }
-    })
+		// Update settings
+		const updatedSettings = await this.tenantSettingsService.updateSettings(
+			tenantId,
+			settings,
+		);
 
-    return updatedSettings
-  }
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId: adminId,
+			action: "tenant_settings.update",
+			resource: "tenant_settings",
+			resourceId: "default",
+			metadata: {
+				changes: settings,
+			},
+		});
 
-  /**
-   * Update tenant information (admin only)
-   */
-  async updateTenantInfo(
-    tenantId: string,
-    adminId: string,
-    data: Partial<Pick<Tenant, 'name' | 'config' | 'settings'>>
-  ): Promise<Tenant> {
-    // Verify admin privileges
-    const isAdmin = await this.isTenantAdmin(tenantId, adminId)
-    if (!isAdmin) {
-      throw new Error('Unauthorized: Admin privileges required')
-    }
+		return updatedSettings;
+	}
 
-    // Update tenant in master database
-    const tenant = await prisma.tenant.update({
-      where: { id: tenantId },
-      data
-    })
+	/**
+	 * Update tenant information (admin only)
+	 */
+	async updateTenantInfo(
+		tenantId: string,
+		adminId: string,
+		data: Partial<Pick<Tenant, "name" | "config" | "settings">>,
+	): Promise<Tenant> {
+		// Verify admin privileges
+		const isAdmin = await this.isTenantAdmin(tenantId, adminId);
+		if (!isAdmin) {
+			throw new Error("Unauthorized: Admin privileges required");
+		}
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId: adminId,
-      action: 'tenant.update',
-      resource: 'tenant',
-      resourceId: tenantId,
-      metadata: {
-        changes: data
-      }
-    })
+		// Update tenant in master database
+		const tenant = await prisma.tenant.update({
+			where: { id: tenantId },
+			data,
+		});
 
-    return tenant
-  }
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId: adminId,
+			action: "tenant.update",
+			resource: "tenant",
+			resourceId: tenantId,
+			metadata: {
+				changes: data,
+			},
+		});
 
-  /**
-   * Get tenant usage statistics (admin only)
-   */
-  async getTenantStats(tenantId: string, adminId: string): Promise<any> {
-    // Verify admin privileges
-    const isAdmin = await this.isTenantAdmin(tenantId, adminId)
-    if (!isAdmin) {
-      throw new Error('Unauthorized: Admin privileges required')
-    }
+		return tenant;
+	}
 
-    const db = await getDbClient(tenantId)
+	/**
+	 * Get tenant usage statistics (admin only)
+	 */
+	async getTenantStats(tenantId: string, adminId: string): Promise<any> {
+		// Verify admin privileges
+		const isAdmin = await this.isTenantAdmin(tenantId, adminId);
+		if (!isAdmin) {
+			throw new Error("Unauthorized: Admin privileges required");
+		}
 
-    const [
-      userCount,
-      orgCount,
-      activeSessionCount,
-      mfaEnabledCount
-    ] = await Promise.all([
-      db.user.count({ where: { deletedAt: null } }),
-      db.organization.count({ where: { deletedAt: null } }),
-      db.session.count({
-        where: {
-          expiresAt: { gt: new Date() }
-        }
-      }),
-      db.user.count({
-        where: {
-          deletedAt: null,
-          mfaSettings: {
-            some: {
-              enabled: true
-            }
-          }
-        }
-      })
-    ])
+		const db = await getDbClient(tenantId);
 
-    return {
-      users: {
-        total: userCount,
-        mfaEnabled: mfaEnabledCount
-      },
-      organizations: {
-        total: orgCount
-      },
-      sessions: {
-        active: activeSessionCount
-      }
-    }
-  }
+		const [userCount, orgCount, activeSessionCount, mfaEnabledCount] =
+			await Promise.all([
+				db.user.count({ where: { deletedAt: null } }),
+				db.organization.count({ where: { deletedAt: null } }),
+				db.session.count({
+					where: {
+						expiresAt: { gt: new Date() },
+					},
+				}),
+				db.user.count({
+					where: {
+						deletedAt: null,
+						mfaSettings: {
+							some: {
+								enabled: true,
+							},
+						},
+					},
+				}),
+			]);
 
-  /**
-   * Enforce MFA for all users (admin only)
-   */
-  async enforceMfaForAllUsers(
-    tenantId: string,
-    adminId: string,
-    enforceForAdminsOnly: boolean = false
-  ): Promise<void> {
-    // Verify admin privileges
-    const isAdmin = await this.isTenantAdmin(tenantId, adminId)
-    if (!isAdmin) {
-      throw new Error('Unauthorized: Admin privileges required')
-    }
+		return {
+			users: {
+				total: userCount,
+				mfaEnabled: mfaEnabledCount,
+			},
+			organizations: {
+				total: orgCount,
+			},
+			sessions: {
+				active: activeSessionCount,
+			},
+		};
+	}
 
-    // Update tenant settings
-    const settings = enforceForAdminsOnly
-      ? { mfaRequiredForAdmins: true }
-      : { mfaRequired: true }
+	/**
+	 * Enforce MFA for all users (admin only)
+	 */
+	async enforceMfaForAllUsers(
+		tenantId: string,
+		adminId: string,
+		enforceForAdminsOnly = false,
+	): Promise<void> {
+		// Verify admin privileges
+		const isAdmin = await this.isTenantAdmin(tenantId, adminId);
+		if (!isAdmin) {
+			throw new Error("Unauthorized: Admin privileges required");
+		}
 
-    await this.tenantSettingsService.updateSettings(tenantId, settings)
+		// Update tenant settings
+		const settings = enforceForAdminsOnly
+			? { mfaRequiredForAdmins: true }
+			: { mfaRequired: true };
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId: adminId,
-      action: 'mfa.enforce',
-      resource: 'tenant_settings',
-      resourceId: 'default',
-      metadata: {
-        enforceForAdminsOnly
-      }
-    })
-  }
+		await this.tenantSettingsService.updateSettings(tenantId, settings);
+
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId: adminId,
+			action: "mfa.enforce",
+			resource: "tenant_settings",
+			resourceId: "default",
+			metadata: {
+				enforceForAdminsOnly,
+			},
+		});
+	}
 }

@@ -1,187 +1,187 @@
-import { getDbClient } from '../lib/database'
-import { generateSecureToken } from '../lib/crypto'
-import { EmailService } from './email.service'
-import { TenantSettingsService } from './tenant-settings.service'
-import { AuditService } from './audit.service'
-import { CacheService } from './cache.service'
+import { generateSecureToken } from "../lib/crypto";
+import { getDbClient } from "../lib/database";
+import { AuditService } from "./audit.service";
+import { CacheService } from "./cache.service";
+import { EmailService } from "./email.service";
+import { TenantSettingsService } from "./tenant-settings.service";
 
 export class UserActivationService {
-  private emailService: EmailService
-  private tenantSettingsService: TenantSettingsService
-  private auditService: AuditService
-  private cacheService: CacheService
+	private emailService: EmailService;
+	private tenantSettingsService: TenantSettingsService;
+	private auditService: AuditService;
+	private cacheService: CacheService;
 
-  constructor() {
-    this.emailService = new EmailService()
-    this.tenantSettingsService = new TenantSettingsService()
-    this.auditService = new AuditService()
-    this.cacheService = new CacheService()
-  }
+	constructor() {
+		this.emailService = new EmailService();
+		this.tenantSettingsService = new TenantSettingsService();
+		this.auditService = new AuditService();
+		this.cacheService = new CacheService();
+	}
 
-  /**
-   * Send activation email to user
-   */
-  async sendActivationEmail(
-    tenantId: string,
-    userId: string,
-    email: string
-  ): Promise<void> {
-    const token = generateSecureToken()
-    
-    // Store activation token in cache for 24 hours
-    await this.cacheService.set(
-      `activation:${token}`,
-      { userId, tenantId, email },
-      86400 // 24 hours
-    )
+	/**
+	 * Send activation email to user
+	 */
+	async sendActivationEmail(
+		tenantId: string,
+		userId: string,
+		email: string,
+	): Promise<void> {
+		const token = generateSecureToken();
 
-    // Send activation email
-    await this.emailService.sendActivationEmail(email, {
-      activationUrl: `${process.env.APP_URL}/activate?token=${token}`
-    })
+		// Store activation token in cache for 24 hours
+		await this.cacheService.set(
+			`activation:${token}`,
+			{ userId, tenantId, email },
+			86400, // 24 hours
+		);
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId,
-      action: 'user.activation_sent',
-      resource: 'user',
-      resourceId: userId,
-      metadata: { email }
-    })
-  }
+		// Send activation email
+		await this.emailService.sendActivationEmail(email, {
+			activationUrl: `${process.env.APP_URL}/activate?token=${token}`,
+		});
 
-  /**
-   * Activate user account
-   */
-  async activateAccount(
-    token: string,
-    requireMfa: boolean = false
-  ): Promise<{ success: boolean; message: string; userId?: string }> {
-    // Get activation data from cache
-    const activationData = await this.cacheService.get<{
-      userId: string
-      tenantId: string
-      email: string
-    }>(`activation:${token}`)
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId,
+			action: "user.activation_sent",
+			resource: "user",
+			resourceId: userId,
+			metadata: { email },
+		});
+	}
 
-    if (!activationData) {
-      return {
-        success: false,
-        message: 'Invalid or expired activation token'
-      }
-    }
+	/**
+	 * Activate user account
+	 */
+	async activateAccount(
+		token: string,
+		requireMfa = false,
+	): Promise<{ success: boolean; message: string; userId?: string }> {
+		// Get activation data from cache
+		const activationData = await this.cacheService.get<{
+			userId: string;
+			tenantId: string;
+			email: string;
+		}>(`activation:${token}`);
 
-    const { userId, tenantId, email } = activationData
-    const db = await getDbClient(tenantId)
+		if (!activationData) {
+			return {
+				success: false,
+				message: "Invalid or expired activation token",
+			};
+		}
 
-    // Get user
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      include: {
-        mfaSettings: {
-          where: { enabled: true }
-        }
-      }
-    })
+		const { userId, tenantId, email } = activationData;
+		const db = await getDbClient(tenantId);
 
-    if (!user) {
-      return {
-        success: false,
-        message: 'User not found'
-      }
-    }
+		// Get user
+		const user = await db.user.findUnique({
+			where: { id: userId },
+			include: {
+				mfaSettings: {
+					where: { enabled: true },
+				},
+			},
+		});
 
-    if (user.isActive) {
-      return {
-        success: false,
-        message: 'Account is already activated'
-      }
-    }
+		if (!user) {
+			return {
+				success: false,
+				message: "User not found",
+			};
+		}
 
-    // Check if MFA is required for activation
-    const settings = await this.tenantSettingsService.getSettings(tenantId)
-    if (settings.requireMfaForActivation && !user.mfaSettings.length) {
-      return {
-        success: false,
-        message: 'MFA setup required before activation'
-      }
-    }
+		if (user.isActive) {
+			return {
+				success: false,
+				message: "Account is already activated",
+			};
+		}
 
-    // Activate user
-    await db.user.update({
-      where: { id: userId },
-      data: {
-        isActive: true,
-        activatedAt: new Date()
-      }
-    })
+		// Check if MFA is required for activation
+		const settings = await this.tenantSettingsService.getSettings(tenantId);
+		if (settings.requireMfaForActivation && !user.mfaSettings.length) {
+			return {
+				success: false,
+				message: "MFA setup required before activation",
+			};
+		}
 
-    // Delete activation token
-    await this.cacheService.delete(`activation:${token}`)
+		// Activate user
+		await db.user.update({
+			where: { id: userId },
+			data: {
+				isActive: true,
+				activatedAt: new Date(),
+			},
+		});
 
-    // Log audit event
-    await this.auditService.log(tenantId, {
-      userId,
-      action: 'user.activated',
-      resource: 'user',
-      resourceId: userId,
-      metadata: { email }
-    })
+		// Delete activation token
+		await this.cacheService.delete(`activation:${token}`);
 
-    return {
-      success: true,
-      message: 'Account activated successfully',
-      userId
-    }
-  }
+		// Log audit event
+		await this.auditService.log(tenantId, {
+			userId,
+			action: "user.activated",
+			resource: "user",
+			resourceId: userId,
+			metadata: { email },
+		});
 
-  /**
-   * Check if user needs activation
-   */
-  async needsActivation(tenantId: string, userId: string): Promise<boolean> {
-    const db = await getDbClient(tenantId)
-    
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { isActive: true }
-    })
+		return {
+			success: true,
+			message: "Account activated successfully",
+			userId,
+		};
+	}
 
-    return user ? !user.isActive : false
-  }
+	/**
+	 * Check if user needs activation
+	 */
+	async needsActivation(tenantId: string, userId: string): Promise<boolean> {
+		const db = await getDbClient(tenantId);
 
-  /**
-   * Resend activation email
-   */
-  async resendActivation(
-    tenantId: string,
-    email: string
-  ): Promise<{ success: boolean; message: string }> {
-    const db = await getDbClient(tenantId)
-    
-    const user = await db.user.findUnique({
-      where: { email }
-    })
+		const user = await db.user.findUnique({
+			where: { id: userId },
+			select: { isActive: true },
+		});
 
-    if (!user) {
-      return {
-        success: false,
-        message: 'User not found'
-      }
-    }
+		return user ? !user.isActive : false;
+	}
 
-    if (user.isActive) {
-      return {
-        success: false,
-        message: 'Account is already activated'
-      }
-    }
+	/**
+	 * Resend activation email
+	 */
+	async resendActivation(
+		tenantId: string,
+		email: string,
+	): Promise<{ success: boolean; message: string }> {
+		const db = await getDbClient(tenantId);
 
-    // Send new activation email
-    await this.sendActivationEmail(tenantId, user.id, email)
+		const user = await db.user.findUnique({
+			where: { email },
+		});
 
-    return {
-      success: true,
-      message: 'Activation email sent'
-    }
-  }
+		if (!user) {
+			return {
+				success: false,
+				message: "User not found",
+			};
+		}
+
+		if (user.isActive) {
+			return {
+				success: false,
+				message: "Account is already activated",
+			};
+		}
+
+		// Send new activation email
+		await this.sendActivationEmail(tenantId, user.id, email);
+
+		return {
+			success: true,
+			message: "Activation email sent",
+		};
+	}
 }
