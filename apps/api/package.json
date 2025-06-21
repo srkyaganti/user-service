@@ -1,0 +1,16 @@
+{
+  "name": "@user-service/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/index.ts --target=bun --outdir=dist",
+    "start": "bun run dist/index.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@user-service/database": "workspace:*",
+    "@user-service/shared": "workspace:*"
+  }
+}

@@ -1,0 +1,417 @@
+import { dbManager } from '@user-service/database'
+import { 
+  LoginDto, 
+  RegisterDto, 
+  AuthenticationError, 
+  ValidationError,
+  NotFoundError,
+  CACHE_KEYS,
+  EVENTS,
+  TOKEN_EXPIRY,
+  generateToken,
+  getClientIp,
+  getUserAgent,
+} from '@user-service/shared'
+import { KeycloakService } from './keycloak.service'
+import { CacheService } from './cache.service'
+import { EventService } from './event.service'
+import { generateTokens, verifyRefreshToken } from '../lib/jwt'
+import { hashPassword, verifyPassword, generateSecureToken } from '../lib/crypto'
+import { logger } from '../lib/logger'
+import type { User, Organization } from '@user-service/database'
+
+const keycloak = KeycloakService.getInstance()
+const cache = CacheService.getInstance()
+const events = EventService.getInstance()
+
+export class AuthService {
+  async login(tenantId: string, data: LoginDto & { ipAddress: string; userAgent: string }) {
+    const db = await dbManager.getClient(tenantId)
+    const tenant = await dbManager.getTenant({ id: tenantId })
+    
+    if (!tenant) {
+      throw new NotFoundError('Tenant')
+    }
+    
+    // Find user
+    const user = await db.user.findUnique({
+      where: { email: data.email },
+      include: {
+        memberships: {
+          include: {
+            organization: true,
+          },
+        },
+        mfaSettings: {
+          where: { enabled: true },
+        },
+      },
+    })
+    
+    if (!user) {
+      throw new AuthenticationError('Invalid credentials')
+    }
+    
+    // Verify password with Keycloak
+    const isValidPassword = await keycloak.verifyUserCredentials(
+      tenant.keycloakRealm!,
+      data.email,
+      data.password
+    )
+    
+    if (!isValidPassword) {
+      // Log failed attempt
+      await events.publish(EVENTS.USER_LOGGED_IN, {
+        userId: user.id,
+        success: false,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+      })
+      
+      throw new AuthenticationError('Invalid credentials')
+    }
+    
+    // Check if MFA is required
+    const requiresMFA = user.mfaSettings.length > 0 || tenant.config.auth?.mfaRequired
+    
+    if (requiresMFA) {
+      // Generate MFA session token
+      const mfaToken = generateSecureToken()
+      await cache.set(
+        `mfa:session:${mfaToken}`,
+        { userId: user.id, tenantId },
+        TOKEN_EXPIRY.VERIFICATION
+      )
+      
+      return {
+        requiresMFA: true,
+        mfaToken,
+        mfaMethods: user.mfaSettings.map(s => s.type),
+      }
+    }
+    
+    // Generate tokens and create session
+    const tokens = await generateTokens({
+      userId: user.id,
+      email: user.email,
+      tenantId,
+      organizationId: user.memberships[0]?.organization.id,
+    })
+    
+    // Handle device tracking
+    let deviceId: string | undefined
+    if (data.deviceFingerprint) {
+      const device = await db.device.upsert({
+        where: { fingerprint: data.deviceFingerprint },
+        update: {
+          lastIp: data.ipAddress,
+          lastUsedAt: new Date(),
+        },
+        create: {
+          userId: user.id,
+          fingerprint: data.deviceFingerprint,
+          name: 'Unknown Device',
+          type: 'UNKNOWN',
+          lastIp: data.ipAddress,
+        },
+      })
+      deviceId = device.id
+    }
+    
+    // Create session
+    const session = await db.session.create({
+      data: {
+        userId: user.id,
+        deviceId,
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      },
+    })
+    
+    // Cache session
+    await cache.set(
+      CACHE_KEYS.SESSION(tokens.accessToken),
+      {
+        userId: user.id,
+        tenantId,
+        sessionId: session.id,
+      },
+      TOKEN_EXPIRY.ACCESS
+    )
+    
+    // Publish event
+    await events.publish(EVENTS.USER_LOGGED_IN, {
+      userId: user.id,
+      sessionId: session.id,
+      ipAddress: data.ipAddress,
+      userAgent: data.userAgent,
+    })
+    
+    // Log activity
+    await this.logActivity(db, {
+      userId: user.id,
+      action: 'user.login',
+      resource: 'session',
+      resourceId: session.id,
+      ipAddress: data.ipAddress,
+      userAgent: data.userAgent,
+    })
+    
+    return {
+      user: this.sanitizeUser(user),
+      tokens: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: TOKEN_EXPIRY.ACCESS,
+      },
+      organizations: user.memberships.map(m => m.organization),
+    }
+  }
+  
+  async register(tenantId: string, data: RegisterDto & { ipAddress: string; userAgent: string }) {
+    const db = await dbManager.getClient(tenantId)
+    const tenant = await dbManager.getTenant({ id: tenantId })
+    
+    if (!tenant) {
+      throw new NotFoundError('Tenant')
+    }
+    
+    // Check if user exists
+    const existingUser = await db.user.findUnique({
+      where: { email: data.email },
+    })
+    
+    if (existingUser) {
+      throw new ValidationError('User with this email already exists')
+    }
+    
+    // Process invitation if provided
+    let organizationId = data.organizationId
+    let role: 'MEMBER' | 'ADMIN' | 'OWNER' | 'GUEST' = 'MEMBER'
+    
+    if (data.invitationToken) {
+      const invitation = await db.invitation.findUnique({
+        where: { token: data.invitationToken },
+      })
+      
+      if (!invitation || invitation.expiresAt < new Date()) {
+        throw new ValidationError('Invalid or expired invitation')
+      }
+      
+      if (invitation.email !== data.email) {
+        throw new ValidationError('Invitation email does not match')
+      }
+      
+      organizationId = invitation.orgId
+      role = invitation.role
+      
+      // Mark invitation as accepted
+      await db.invitation.update({
+        where: { id: invitation.id },
+        data: { acceptedAt: new Date() },
+      })
+    }
+    
+    // Validate organization requirement
+    if (tenant.config.auth?.requireOrganization && !organizationId) {
+      throw new ValidationError('Organization membership required')
+    }
+    
+    // Create user in Keycloak
+    const keycloakUser = await keycloak.createUser(tenant.keycloakRealm!, {
+      email: data.email,
+      password: data.password,
+      firstName: data.profile?.firstName,
+      lastName: data.profile?.lastName,
+      attributes: {
+        tenantId,
+        userType: organizationId ? 'ORGANIZATIONAL' : 'INDIVIDUAL',
+      },
+    })
+    
+    // Create user in database
+    const user = await db.user.create({
+      data: {
+        keycloakId: keycloakUser.id,
+        email: data.email,
+        profile: data.profile || {},
+        userType: organizationId ? 'ORGANIZATIONAL' : 'INDIVIDUAL',
+        memberships: organizationId ? {
+          create: {
+            organizationId,
+            role,
+          },
+        } : undefined,
+      },
+      include: {
+        memberships: {
+          include: {
+            organization: true,
+          },
+        },
+      },
+    })
+    
+    // Send verification email
+    await keycloak.sendVerificationEmail(tenant.keycloakRealm!, keycloakUser.id)
+    
+    // Generate tokens
+    const tokens = await generateTokens({
+      userId: user.id,
+      email: user.email,
+      tenantId,
+      organizationId: user.memberships[0]?.organization.id,
+    })
+    
+    // Create session
+    const session = await db.session.create({
+      data: {
+        userId: user.id,
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    })
+    
+    // Publish event
+    await events.publish(EVENTS.USER_CREATED, {
+      userId: user.id,
+      email: user.email,
+      organizationId,
+    })
+    
+    // Log activity
+    await this.logActivity(db, {
+      userId: user.id,
+      action: 'user.register',
+      resource: 'user',
+      resourceId: user.id,
+      ipAddress: data.ipAddress,
+      userAgent: data.userAgent,
+    })
+    
+    return {
+      user: this.sanitizeUser(user),
+      tokens: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: TOKEN_EXPIRY.ACCESS,
+      },
+      organizations: user.memberships.map(m => m.organization),
+    }
+  }
+  
+  async logout(userId: string, sessionId: string) {
+    const db = await dbManager.getClient('') // Get from session context
+    
+    // Delete session
+    await db.session.delete({
+      where: { id: sessionId },
+    })
+    
+    // Clear cache
+    const session = await db.session.findUnique({
+      where: { id: sessionId },
+    })
+    
+    if (session) {
+      await cache.delete(CACHE_KEYS.SESSION(session.token))
+    }
+    
+    // Publish event
+    await events.publish(EVENTS.USER_LOGGED_OUT, {
+      userId,
+      sessionId,
+    })
+  }
+  
+  async refreshToken(refreshToken: string) {
+    try {
+      const { sub: userId, sessionId } = await verifyRefreshToken(refreshToken)
+      
+      // Get session from database
+      const db = await dbManager.getClient('') // Get from token context
+      const session = await db.session.findUnique({
+        where: { refreshToken },
+        include: {
+          user: {
+            include: {
+              memberships: {
+                include: {
+                  organization: true,
+                },
+              },
+            },
+          },
+        },
+      })
+      
+      if (!session || session.expiresAt < new Date()) {
+        throw new AuthenticationError('Invalid or expired session')
+      }
+      
+      // Generate new tokens
+      const tokens = await generateTokens({
+        userId: session.user.id,
+        email: session.user.email,
+        tenantId: '', // Get from context
+        organizationId: session.user.memberships[0]?.organization.id,
+      })
+      
+      // Update session
+      await db.session.update({
+        where: { id: session.id },
+        data: {
+          token: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          lastActivity: new Date(),
+        },
+      })
+      
+      return {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: TOKEN_EXPIRY.ACCESS,
+      }
+    } catch (error) {
+      throw new AuthenticationError('Invalid refresh token')
+    }
+  }
+  
+  private sanitizeUser(user: User & { memberships?: any[] }) {
+    return {
+      id: user.id,
+      email: user.email,
+      profile: user.profile,
+      userType: user.userType,
+      createdAt: user.createdAt,
+    }
+  }
+  
+  private async logActivity(db: any, data: {
+    userId: string
+    action: string
+    resource: string
+    resourceId?: string
+    ipAddress: string
+    userAgent: string
+  }) {
+    await db.auditLog.create({
+      data: {
+        userId: data.userId,
+        action: data.action,
+        resource: data.resource,
+        resourceId: data.resourceId,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+      },
+    })
+  }
+}
+
+export const authService = new AuthService()

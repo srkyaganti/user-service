@@ -1,0 +1,101 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+.nyc_output/
+
+# Production builds
+dist/
+build/
+out/
+.next/
+.nuxt/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+.DS_Store
+
+# Bun
+.bun/
+bun.lockb
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+packages/database/generated/
+
+# Uploads
+uploads/
+tmp/
+temp/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# Backup files
+*.backup
+*.old
+
+# Lock files (keep package-lock.json but ignore others)
+yarn.lock
+pnpm-lock.yaml
+
+# Debug
+.pnpm-debug.log*
+
+# Miscellaneous
+.cache/
+.parcel-cache/
+.turbo/
+.vercel/
+.netlify/
+
+# Generated files
+*.generated.ts
+*.generated.js
+
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/

@@ -1,0 +1,330 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Central tenant management schema
+model Tenant {
+  id            String    @id @default(cuid())
+  slug          String    @unique
+  name          String
+  config        Json      @default("{}")
+  status        TenantStatus @default(ACTIVE)
+  
+  // Database configuration
+  dbHost        String?
+  dbName        String?
+  dbUser        String?
+  dbPassword    String?   @map("db_password_encrypted")
+  
+  // Keycloak configuration
+  keycloakRealm String?
+  keycloakClientId String?
+  keycloakClientSecret String? @map("keycloak_client_secret_encrypted")
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@map("tenants")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  ARCHIVED
+}
+
+// User model (per-tenant database)
+model User {
+  id            String    @id @default(cuid())
+  keycloakId    String    @unique
+  email         String    @unique
+  passwordHash  String?   @map("password_hash")
+  profile       Json?     @default("{}")
+  userType      UserType  @default(INDIVIDUAL)
+  
+  memberships   OrganizationMember[]
+  devices       Device[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  mfaSettings   MFASetting[]
+  socialAuths   SocialAuth[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  
+  @@index([email])
+  @@index([keycloakId])
+  @@map("users")
+}
+
+enum UserType {
+  INDIVIDUAL
+  ORGANIZATIONAL
+  HYBRID
+}
+
+// Organization model
+model Organization {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique
+  logo          String?
+  description   String?
+  settings      Json      @default("{}")
+  metadata      Json?
+  
+  // Billing
+  billingPlan   String?
+  billingEmail  String?
+  
+  members       OrganizationMember[]
+  teams         Team[]
+  invitations   Invitation[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  
+  @@index([slug])
+  @@map("organizations")
+}
+
+// Organization membership
+model OrganizationMember {
+  id            String    @id @default(cuid())
+  userId        String
+  orgId         String
+  role          OrgRole   @default(MEMBER)
+  permissions   String[]  @default([])
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  teamMembers   TeamMember[]
+  
+  joinedAt      DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@unique([userId, orgId])
+  @@index([userId])
+  @@index([orgId])
+  @@map("organization_members")
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+// Team model
+model Team {
+  id            String    @id @default(cuid())
+  orgId         String
+  name          String
+  description   String?
+  permissions   String[]  @default([])
+  
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members       TeamMember[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("teams")
+}
+
+// Team membership
+model TeamMember {
+  id            String    @id @default(cuid())
+  teamId        String
+  memberId      String
+  role          String    @default("member")
+  
+  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  member        OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  
+  joinedAt      DateTime  @default(now())
+  
+  @@unique([teamId, memberId])
+  @@index([teamId])
+  @@index([memberId])
+  @@map("team_members")
+}
+
+// Device tracking
+model Device {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  type          DeviceType
+  fingerprint   String    @unique
+  trustLevel    TrustLevel @default(UNKNOWN)
+  
+  // Device info
+  platform      String?
+  browser       String?
+  os            String?
+  
+  // Location
+  lastIp        String?
+  lastLocation  Json?
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions      Session[]
+  
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([fingerprint])
+  @@map("devices")
+}
+
+enum DeviceType {
+  MOBILE
+  DESKTOP
+  TABLET
+  UNKNOWN
+}
+
+enum TrustLevel {
+  TRUSTED
+  VERIFIED
+  UNKNOWN
+}
+
+// Session management
+model Session {
+  id            String    @id @default(cuid())
+  userId        String
+  deviceId      String?
+  token         String    @unique
+  refreshToken  String    @unique
+  
+  // Session info
+  ipAddress     String
+  userAgent     String
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  
+  createdAt     DateTime  @default(now())
+  lastActivity  DateTime  @default(now())
+  expiresAt     DateTime
+  
+  @@index([token])
+  @@index([refreshToken])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// MFA settings
+model MFASetting {
+  id            String    @id @default(cuid())
+  userId        String
+  type          MFAType
+  enabled       Boolean   @default(true)
+  secret        String?   @map("secret_encrypted")
+  backupCodes   String[]  @map("backup_codes_encrypted")
+  
+  // WebAuthn specific
+  credentialId  String?
+  publicKey     String?
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastUsedAt    DateTime?
+  
+  @@unique([userId, type])
+  @@index([userId])
+  @@map("mfa_settings")
+}
+
+enum MFAType {
+  TOTP
+  SMS
+  EMAIL
+  WEBAUTHN
+}
+
+// Invitations
+model Invitation {
+  id            String    @id @default(cuid())
+  orgId         String
+  email         String
+  role          OrgRole   @default(MEMBER)
+  invitedBy     String
+  token         String    @unique
+  metadata      Json?
+  
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  
+  @@index([token])
+  @@index([email])
+  @@index([orgId])
+  @@map("invitations")
+}
+
+// Audit logs
+model AuditLog {
+  id            String    @id @default(cuid())
+  userId        String?
+  action        String
+  resource      String
+  resourceId    String?
+  metadata      Json?
+  
+  // Request info
+  ipAddress     String
+  userAgent     String
+  
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  timestamp     DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([timestamp])
+  @@index([action])
+  @@index([resource])
+  @@map("audit_logs")
+}
+
+// Social authentication providers
+model SocialAuth {
+  id            String    @id @default(cuid())
+  userId        String
+  provider      String    // google, github, microsoft, etc.
+  providerId    String    // ID from the provider
+  email         String
+  accessToken   String?   @map("access_token_encrypted")
+  refreshToken  String?   @map("refresh_token_encrypted")
+  expiresAt     DateTime?
+  profile       Json?     // Store provider-specific profile data
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@unique([provider, providerId])
+  @@index([userId])
+  @@map("social_auths")
+}
