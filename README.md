@@ -1,5 +1,9 @@
 # User Service
 
+> Part of **[Fountane AI](https://github.com/srkyaganti/fountane-ai)** - Enterprise Intelligence Platform enabling rapid AI-powered application development and deployment in 48-72 hours.
+>
+> For full platform architecture, microservices overview, and enterprise context, please refer to the [main Fountane AI repository](https://github.com/srkyaganti/fountane-ai).
+
 A comprehensive, production-ready multi-tenant authentication and user management service built with Bun, Hono, and Prisma.
 
 ## 🚀 Features
